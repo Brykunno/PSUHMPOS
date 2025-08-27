@@ -239,6 +239,7 @@
     function get_order() {
     let listed = []
     $('.order-item').each(function () {
+     
         listed.push($(this).attr('data-id'))
     })
 
@@ -253,6 +254,7 @@
         },
         success: function (resp) {
             if (resp.status == 'success') {
+               
                 Object.keys(resp.data).map(k => {
                     var data = resp.data[k]
                     var card = $($('noscript#order-clone').html()).clone()
@@ -338,11 +340,6 @@ $(function () {
     setInterval(get_order, 500)
 })
 
-
-    $(function(){
-        $('body').addClass('sidebar-collapse')
-        setInterval(get_order, 500)
-    })
 
     function serve_order($id){
         start_loader();
