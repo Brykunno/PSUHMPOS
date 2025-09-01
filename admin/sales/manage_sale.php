@@ -851,7 +851,7 @@ $table_id = isset($_GET['table_id']) ? intval($_GET['table_id']) : 0;
                                     while($row = $bestSellers->fetch_assoc()):
                                     ?>
                                     <div class="col <?= isset($cid) && $cid == $row['category_id'] ? "" : "d-none" ?> menu-item" data-cat-id='0'>
-                                        <button class="btn btn-default btn-block btn-xs rounded px-2 bg-gradient-light border item-btn text-left" type="button" data-id='<?= $row['id'] ?>' data-price='<?= $row['price'] ?>'>
+                                        <button class="btn btn-default btn-block btn-xs rounded px-2 bg-gradient-light border item-btn text-left" type="button" data-id='<?= $row['menu_id'] ?>' data-price='<?= $row['price'] ?>'>
                                             <div class="d-flex flex-column align-items-center">
                                                 <!-- Image should take up most of the space -->
                                                 <img src="<?= isset($row['image_path']) && !empty($row['image_path']) ? base_url . 'uploads/image/' . htmlspecialchars($row['image_path']) : 'path_to_placeholder_image.jpg' ?>" 
@@ -859,7 +859,7 @@ $table_id = isset($_GET['table_id']) ? intval($_GET['table_id']) : 0;
                                                      style="width: 100%; height: 100px; object-fit: cover; border-radius: 8px;">
                                                 <!-- Text and price below the image -->
                                                 <div class="text-center mt-2">
-                                                    <div class="font-weight-bold"><?= htmlspecialchars($row['menu_name']) ?></div>
+                                                    <div class="font-weight-bold"><?= htmlspecialchars($row['menu_name']) ?> </div>
 
                                                     <small class="text-muted"><?= $row['code'] ?></small>
                                                     <br/>
