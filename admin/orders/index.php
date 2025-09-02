@@ -176,10 +176,12 @@ while ($row = $qry->fetch_assoc()):
                 <a class="btn btn-light bg-gradient-light border" data-toggle="modal" data-target="#orderConfirmationModal<?php echo $order_id ?>" title="Edit Order">
                     <i class="fa fa-edit text-warning"></i>
                 </a>
+                <?php if($row['status'] == 1): // Paid ?>
                 <!-- Bill Out Button -->
                 <a class="btn btn-light bg-gradient-light border" data-toggle="modal" data-target="#billoutConfirmationModal<?php echo $order_id ?>" title="Bill Out">
                     <i class="fa fa-receipt text-warning"></i>
                 </a>
+                <?php endif?>
                 <!-- Delete Button -->
                 <a class="btn btn-danger bg-gradient-danger delete_data" href="javascript:void(0)" data-id="<?php echo $order_id ?>" title="Delete Order">
                     <i class="fa fa-trash"></i>
@@ -345,6 +347,7 @@ while ($row = $qry->fetch_assoc()):
             <input type="number" step="0.01"    class="form-control" name="cash_amount" id="cash_amount<?= $order_id ?>">
           </div>
 
+
           <div class="form-group payment-input emoney-input d-none">
             <label for="emoney_ref<?= $order_id ?>">E-Money Reference No.</label>
             <input type="text" class="form-control" name="emoney_reference" id="emoney_ref<?= $order_id ?>">
@@ -387,6 +390,8 @@ while ($row = $qry->fetch_assoc()):
   <label>Change:</label>
   <span id="change_amount<?= $order_id ?>" class="font-weight-bold">₱0.00</span>
 </div>
+
+
 
           
         </div>
