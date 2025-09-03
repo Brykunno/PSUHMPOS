@@ -173,10 +173,12 @@ while ($row = $qry->fetch_assoc()):
                 </a>
             <?php else: ?>
                 <!-- Edit Order Button -->
+       
                 <a class="btn btn-light bg-gradient-light border" data-toggle="modal" data-target="#orderConfirmationModal<?php echo $order_id ?>" title="Edit Order">
                     <i class="fa fa-edit text-warning"></i>
                 </a>
-                <?php if($row['status'] == 1): // Paid ?>
+              
+                <?php if($row['status'] != 0): // Queued ?>
                 <!-- Bill Out Button -->
                 <a class="btn btn-light bg-gradient-light border" data-toggle="modal" data-target="#billoutConfirmationModal<?php echo $order_id ?>" title="Bill Out">
                     <i class="fa fa-receipt text-warning"></i>
