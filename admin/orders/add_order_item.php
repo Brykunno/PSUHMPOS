@@ -21,8 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $stmt->execute();
 
     // Optionally update total_amount in order_list
-    $conn->query("UPDATE order_list SET total_amount = (SELECT SUM(quantity * price) FROM order_items WHERE order_id = '$order_id') WHERE id = '$order_id'");
-
+    $conn->query("UPDATE order_list SET total_amount = (SELECT SUM(quantity * price) FROM order_items WHERE order_id = '$order_id'),status = 0 WHERE id = '$order_id'");
     // Redirect back or return JSON for AJAX
     if(isset($_POST['ajax'])) {
         echo json_encode(['status' => 'success']);

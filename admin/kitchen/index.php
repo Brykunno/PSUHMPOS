@@ -215,7 +215,11 @@
             <div class="card-header py-2">
                 <div class="d-flex justify-content-between align-items-center">
                     <b class="card-title m-0">Queue # <span class="queue-code">10001</span></b>
-                    <span class="order-type badge bg-secondary text-light px-2 py-1 rounded-pill small">Order Type</span>
+                    <div>
+                         <span class="order-type badge bg-secondary text-light px-2 py-1 rounded-pill small">Order Type</span>
+                     <span class="table-number badge bg-success text-light px-2 py-1 rounded-pill small">Order Type</span>
+                    </div>
+                   
                 </div>
                 <div class="discount-label mt-1"></div>
             </div>
@@ -256,10 +260,12 @@
             if (resp.status == 'success') {
                
                 Object.keys(resp.data).map(k => {
+                    console.log(resp.data)
                     var data = resp.data[k]
                     var card = $($('noscript#order-clone').html()).clone()
                     card.attr('data-id', data.id)
                     card.find('.queue-code').text(data.queue)
+                    card.find('.table-number').text("Table #"+data.table_number)
 
                     // Set Order Type label styling
                     const typeEl = card.find('.order-type')
@@ -274,19 +280,37 @@
                     if (data.discount) {
                         card.find('.discount-label').html('<div class="discount-badge">' + data.discount + '</div>')
                     }
-
+                  
                     // Add items
+                    let itemList = [];
                     Object.keys(data.item_arr).map(i => {
-                        var item = data.item_arr[i]
-                        var row = $('<div class="d-flex w-100">\
-                            <div class="col-9 m-0">\
-                                <input type="checkbox" class="order-checkbox">\
-                                <span class="item-name">' + item.item + '</span>\
-                            </div>\
-                            <div class="col-3 m-0 text-center">' + parseInt(item.quantity).toLocaleString() + '</div>\
-                        </div>')
-                        card.find('.order-body').append(row)
-                    })
+    var item = data.item_arr[i];
+    
+    var row = $(`
+        <div class="d-flex w-100">
+            <div class="col-9 m-0">
+                <input type="checkbox" class="order-checkbox">
+                <span class="item-name">${item.item}</span>
+            </div>
+            <div class="col-3 m-0 text-center">
+                ${parseInt(item.quantity).toLocaleString()}
+            </div>
+        </div>
+    `);
+
+    var checkbox = row.find('.order-checkbox');
+
+    if (item.served == 1) {
+        checkbox.prop('checked', true);
+        checkbox.prop('disabled', true);
+        checkbox.data('served', true);
+        row.find('.item-name').addClass('item-served');
+        row.find('.col-9').append('<span class="served-label">Served</span>');
+        itemList.push(item.item);
+    }
+
+    card.find('.order-body').append(row);
+});
 
                     $('#order-field').append(card)
 
@@ -307,7 +331,7 @@
                         } else {
                             // For Dine-in: serve only checked items
                             card.find('.order-checkbox').each(function () {
-                                if (this.checked && !$(this).data('served')) {
+                                if (this.checked && !$(this).data('served')  ) {
                                     $(this).data('served', true)
                                     $(this).prop('disabled', true)
                                     $(this).siblings('.item-name').addClass('item-served')

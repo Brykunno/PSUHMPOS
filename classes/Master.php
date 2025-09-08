@@ -446,9 +446,9 @@ Class Master extends DBConnection {
         extract($_POST);
         $swhere = "";
         if(isset($listed) && count($listed) > 0){
-            $swhere = " and id not in (".implode(",", $listed).")";
+            $swhere = " and order_list.id not in (".implode(",", $listed).")";
         }
-        $orders = $this->conn->query("SELECT id, `queue`, `order_type` FROM `order_list` where `status` = 0 {$swhere} order by abs(unix_timestamp(date_created)) asc limit 10");
+        $orders = $this->conn->query("SELECT order_list.id, order_list.queue, order_list.order_type,table_list.table_number FROM `order_list` INNER JOIN table_list ON order_list.table_id = table_list.id where order_list.status = 0 {$swhere} order by abs(unix_timestamp(order_list.date_created)) asc limit 10");
         $data = [];
         while($row = $orders->fetch_assoc()){
             $items = $this->conn->query("SELECT oi.*, concat(m.code, m.name) as `item` FROM `order_items` oi inner join menu_list m on oi.menu_id = m.id where order_id = '{$row['id']}'");
@@ -467,6 +467,7 @@ Class Master extends DBConnection {
     function serve_order(){
         extract($_POST);
         $update = $this->conn->query("UPDATE `order_list` set `status` = 1 where id = '{$id}'");
+        $this->conn->query("UPDATE order_items SET served = 1 WHERE order_id = '{$id}'");
         if($update){
             $resp['status'] = 'success';
         }else{
