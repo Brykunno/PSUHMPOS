@@ -477,6 +477,19 @@ Class Master extends DBConnection {
         return json_encode($resp);
     }
 
+
+    function serve_one_order(){
+        extract($_POST);
+        $update = $this->conn->query("UPDATE order_items SET served = 1 WHERE id = '{$id}'");
+        if($update){
+            $resp['status'] = 'success';
+        }else{
+            $resp['status'] = 'failed';
+            $resp['error'] = $this->conn->error;
+        }
+        return json_encode($resp);
+    }
+
     
 function save_table(){
     extract($_POST);
@@ -594,6 +607,9 @@ switch ($action) {
         break;
     case 'serve_order':
         echo $Master->serve_order();
+        break;
+    case 'serve_one_order':
+        echo $Master->serve_one_order();
         break;
     case 'save_table':
         echo $Master->save_table();

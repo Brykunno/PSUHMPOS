@@ -330,13 +330,15 @@
                             })
                         } else {
                             // For Dine-in: serve only checked items
-                            card.find('.order-checkbox').each(function () {
+                            card.find('.order-checkbox').each(function (index) {
                                 if (this.checked && !$(this).data('served')  ) {
                                     $(this).data('served', true)
                                     $(this).prop('disabled', true)
                                     $(this).siblings('.item-name').addClass('item-served')
                                     $(this).parent().append('<span class="served-label">Served</span>')
                                     itemList.push($(this).siblings('.item-name').text())
+                                    const id = data.item_arr[index].id
+                                    serve_one_order(id)
                                 }
                             })
                         }
@@ -346,7 +348,9 @@
                         card.find('.order-checkbox').each(function () {
                             if (!$(this).data('served')) {
                                 allServed = false;
+                              
                             }
+                        
                         })
 
                         if (allServed) {
@@ -369,6 +373,30 @@ $(function () {
         start_loader();
         $.ajax({
             url: _base_url_ + "classes/Master.php?f=serve_order",
+            method: "POST",
+            data: { id: $id },
+            dataType: "json",
+            error: err => {
+                console.log(err)
+                alert_toast("An error occurred.", 'error');
+                end_loader();
+            },
+            success: function(resp) {
+                if (typeof resp == 'object' && resp.status == 'success') {
+                    alert_toast("Order has been fully served.", 'success');
+                    $('.order-item[data-id="' + $id + '"]').remove()
+                } else {
+                    alert_toast("An error occurred.", 'error');
+                }
+                end_loader();
+            }
+        })
+    }
+
+        function serve_one_order($id){
+        start_loader();
+        $.ajax({
+            url: _base_url_ + "classes/Master.php?f=serve_one_order",
             method: "POST",
             data: { id: $id },
             dataType: "json",
