@@ -70,6 +70,38 @@
 		border: none;
 	}
 
+	/* Individual item delete button styling */
+	.delete_order_item {
+		transition: all 0.2s ease;
+		padding: 0.25rem 0.5rem;
+		font-size: 0.75rem;
+		margin-left: 0.5rem;
+	}
+
+	.delete_order_item:hover {
+		background-color: #dc3545 !important;
+		border-color: #dc3545 !important;
+		color: white !important;
+		transform: scale(1.05);
+	}
+
+	.list-group-item > div {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	/* Ensure confirmation modal Continue button is always clickable */
+	#confirm_modal #confirm {
+		pointer-events: auto !important;
+		z-index: 9999 !important;
+		position: relative;
+	}
+	
+	#confirm_modal .modal-footer button {
+		pointer-events: auto !important;
+		z-index: 9999 !important;
+	}
 
 </style>
 
@@ -125,10 +157,9 @@ while ($row = $qry->fetch_assoc()):
     $order_id = $row['id'];
 
     // Fetch all items for this order
-    $items = $conn->query("SELECT oi.*, ml.name AS menu_name 
+    $items = $conn->query("SELECT oi.*, ml.name AS menu_name, ml.price 
                            FROM order_items oi 
                            INNER JOIN menu_list ml ON oi.menu_id = ml.id 
-                           
                            WHERE oi.order_id = '$order_id'");
 ?>
 <tr>
@@ -168,9 +199,9 @@ while ($row = $qry->fetch_assoc()):
                     <i class="fa fa-print text-success"></i>
                 </a>
                 <!-- Delete Button -->
-                <a class="btn btn-danger bg-gradient-danger delete_data" href="javascript:void(0)" data-id="<?php echo $order_id ?>" title="Delete Order">
+                <!-- <a class="btn btn-danger bg-gradient-danger delete_data" href="javascript:void(0)" data-id="<?php echo $order_id ?>" title="Delete Order">
                     <i class="fa fa-trash"></i>
-                </a>
+                </a> -->
             <?php else: ?>
                 <!-- Edit Order Button -->
        
@@ -184,10 +215,12 @@ while ($row = $qry->fetch_assoc()):
                     <i class="fa fa-receipt text-warning"></i>
                 </a>
                 <?php endif?>
+                  <?php if($row['status'] == 0): // Queued ?>
                 <!-- Delete Button -->
                 <a class="btn btn-danger bg-gradient-danger delete_data" href="javascript:void(0)" data-id="<?php echo $order_id ?>" title="Delete Order">
                     <i class="fa fa-trash"></i>
                 </a>
+                <?php endif?>
             <?php endif; ?>
         </div>
     </td>
@@ -200,7 +233,7 @@ while ($row = $qry->fetch_assoc()):
   <div class="modal-dialog modal-dialog-centered" role="document">
     <div class="modal-content">
       <div class="modal-header bg-primary text-white">
-        <h5 class="modal-title" id="orderConfirmationModalLabel">Add Order</h5>
+        <h5 class="modal-title" id="orderConfirmationModalLabel">Edit Order</h5>
         <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
           <span aria-hidden="true">&times;</span>
         </button>
@@ -210,8 +243,24 @@ while ($row = $qry->fetch_assoc()):
         <ul class="list-group mb-3">
           <?php while($item = $items->fetch_assoc()): ?>
             <li class="list-group-item d-flex justify-content-between align-items-center">
-              <?= $item['menu_name'] ?> <span class="badge badge-primary badge-pill"><?= $item['quantity'] ?>x</span>
+              
+              <?= $item['menu_name'] ?> 
+              <div class="">
+              <span class="badge badge-primary badge-pill">
+                <?= $item['quantity'] ?>x</span>
+                <?php if($row['status'] == 0): // Queued ?>
+              <button class="btn btn-sm btn-outline-danger delete_order_item" 
+                      data-order-id="<?= $order_id ?>" 
+                      data-item-id="<?= $item['id'] ?>"
+                      data-item-name="<?= $item['menu_name'] ?>"
+                      title="Delete Item">
+                <i class="fa fa-trash"></i>
+              </button>
+              <?php endif ?>
+              </div>
+
             </li>
+            
           <?php endwhile; ?>
         </ul>
 
@@ -416,7 +465,63 @@ while ($row = $qry->fetch_assoc()):
 	</div>
 </div>
 
-
+<!-- Admin Authentication Modal for Delete Order -->
+<div class="modal fade" id="adminAuthModal" tabindex="-1" role="dialog" aria-labelledby="adminAuthModalLabel" aria-hidden="true" data-backdrop="static" data-keyboard="false">
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title" id="adminAuthModalLabel">
+          <i class="fa fa-shield-alt mr-2"></i>Admin Authentication Required
+        </h5>
+        <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <form id="adminAuthForm">
+        <div class="modal-body">
+          <div class="alert alert-warning">
+            <i class="fa fa-exclamation-triangle mr-2"></i>
+            <strong>Warning:</strong> You are about to permanently delete this order. Admin credentials are required to proceed.
+          </div>
+          
+          <div class="form-group">
+            <label for="admin_username">
+              <i class="fa fa-user mr-1"></i>Admin Username:
+            </label>
+            <input type="text" class="form-control" id="admin_username" name="admin_username" required autocomplete="username">
+          </div>
+          
+          <div class="form-group">
+            <label for="admin_password">
+              <i class="fa fa-lock mr-1"></i>Admin Password:
+            </label>
+            <div class="input-group">
+              <input type="password" class="form-control" id="admin_password" name="admin_password" required autocomplete="current-password">
+              <div class="input-group-append">
+                <button class="btn btn-outline-secondary" type="button" id="togglePassword">
+                  <i class="fa fa-eye"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <div id="authError" class="alert alert-danger d-none">
+            <i class="fa fa-times-circle mr-2"></i>
+            <span id="authErrorMessage"></span>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-dismiss="modal">
+            <i class="fa fa-times mr-1"></i>Cancel
+          </button>
+          <button type="submit" class="btn btn-danger" id="confirmDeleteBtn">
+            <i class="fa fa-trash mr-1"></i>Confirm Delete
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 
 <script>
 
@@ -440,8 +545,36 @@ while ($row = $qry->fetch_assoc()):
     return (sum % 10) === 0;
 }
 	$(document).ready(function(){
+		// Store the order ID for deletion
+		let orderToDelete = null;
+		let itemToDelete = null;
+		let deleteType = 'order'; // 'order' or 'item'
+		
 		$('.delete_data').click(function(){
-			_conf("Are you sure to delete this order permanently?", "delete_order", [$(this).attr('data-id')])
+			orderToDelete = $(this).attr('data-id');
+			deleteType = 'order';
+			$('#adminAuthModal').modal('show');
+			$('#adminAuthModalLabel').html('<i class="fa fa-shield-alt mr-2"></i>Admin Authentication Required - Delete Order');
+			// Clear previous form data and errors
+			$('#adminAuthForm')[0].reset();
+			$('#authError').addClass('d-none');
+		});
+		
+		// Handle individual item deletion
+		$(document).on('click', '.delete_order_item', function(){
+			let itemData = {
+				orderId: $(this).attr('data-order-id'),
+				itemId: $(this).attr('data-item-id'),
+				itemName: $(this).attr('data-item-name')
+			};
+			
+			itemToDelete = itemData;
+			deleteType = 'item';
+			$('#adminAuthModal').modal('show');
+			$('#adminAuthModalLabel').html('<i class="fa fa-shield-alt mr-2"></i>Admin Authentication Required - Delete Item');
+			// Clear previous form data and errors
+			$('#adminAuthForm')[0].reset();
+			$('#authError').addClass('d-none');
 		});
 		
 		$('.confirm_payment').click(function(){
@@ -497,7 +630,7 @@ while ($row = $qry->fetch_assoc()):
     "&grand_total=" + encodeURIComponent(grand_total) +
     "&total_amount=" + encodeURIComponent(subtotal) +
     "&emoney_reference=" + encodeURIComponent(emoney_reference) +
-    "&card_number=" + encodeURIComponent(card_number);
+    "&card_number=" + encodeURIComponent(card_number) +
     "&vat_amount=" + encodeURIComponent(vat);
     var nw = window.open(url, '_blank', 
         "width=" + ($(window).width() * .8) + ",left=" + ($(window).width() * .1) + 
@@ -620,6 +753,127 @@ $(document).on('click', '.view_receipt', function(){
 		// 	}, 200);
 		// });
 		
+		// Admin authentication form submission
+		$('#adminAuthForm').submit(function(e){
+			e.preventDefault();
+			
+			let username = $('#admin_username').val().trim();
+			let password = $('#admin_password').val();
+			
+			if(!username || !password) {
+				showAuthError('Please enter both username and password');
+				return;
+			}
+			
+			// Disable submit button
+			$('#confirmDeleteBtn').prop('disabled', true).html('<i class="fa fa-spinner fa-spin mr-1"></i>Verifying...');
+			
+			// Verify admin credentials
+			$.ajax({
+				url: 'orders/verify_admin.php',
+				method: 'POST',
+				data: {
+					username: username,
+					password: password
+				},
+				dataType: 'json',
+				success: function(resp) {
+					if(resp.status === 'success') {
+						// Hide the modal and proceed with deletion
+						$('#adminAuthModal').modal('hide');
+						
+						if(deleteType === 'order') {
+							// Show confirmation dialog for order deletion
+							_conf("Are you sure to delete this order permanently?", "delete_order", [orderToDelete]);
+						} else if(deleteType === 'item') {
+							// Show confirmation dialog for item deletion - pass individual values instead of object
+							_conf("Are you sure to delete '" + itemToDelete.itemName + "' from this order?", "delete_order_item", [itemToDelete.orderId, itemToDelete.itemId, "'" + itemToDelete.itemName + "'"]);
+						}
+						
+						// Ensure the Continue button in confirmation modal is clickable
+						setTimeout(function() {
+							$('#confirm_modal #confirm').removeAttr('aria-hidden').css({
+								'pointer-events': 'auto',
+								'z-index': '9999',
+								'position': 'relative'
+							});
+						}, 100);
+					} else {
+						showAuthError(resp.message || 'Invalid admin credentials');
+					}
+				},
+				error: function(xhr) {
+					console.error('Admin verification error:', xhr);
+					showAuthError('Server error occurred. Please try again.');
+				},
+				complete: function() {
+					// Re-enable submit button
+					$('#confirmDeleteBtn').prop('disabled', false).html('<i class="fa fa-trash mr-1"></i>Confirm Delete');
+				}
+			});
+		});
+		
+		// Toggle password visibility
+		$('#togglePassword').click(function() {
+			let passwordField = $('#admin_password');
+			let icon = $(this).find('i');
+			
+			if (passwordField.attr('type') === 'password') {
+				passwordField.attr('type', 'text');
+				icon.removeClass('fa-eye').addClass('fa-eye-slash');
+			} else {
+				passwordField.attr('type', 'password');
+				icon.removeClass('fa-eye-slash').addClass('fa-eye');
+			}
+		});
+		
+		// Clear form when modal is hidden
+		$('#adminAuthModal').on('hidden.bs.modal', function() {
+			$('#adminAuthForm')[0].reset();
+			$('#authError').addClass('d-none');
+			orderToDelete = null;
+			itemToDelete = null;
+			deleteType = 'order';
+		});
+		
+		// Ensure proper focus management for admin auth modal
+		$('#adminAuthModal').on('shown.bs.modal', function () {
+			$(this).removeAttr('aria-hidden');
+			$('#admin_username').focus();
+		});
+
+		// Global fix for Bootstrap modal accessibility issues
+		$(document).on('shown.bs.modal', '.modal', function () {
+			$(this).removeAttr('aria-hidden');
+			// Ensure all buttons in the modal are clickable
+			$(this).find('button').removeAttr('aria-hidden').css('pointer-events', 'auto');
+			
+			// Focus on the first focusable element in the modal
+			var $modal = $(this);
+			setTimeout(function() {
+				var $focusable = $modal.find('input:not([readonly]):not([disabled]), button:not([disabled]), select:not([disabled]), textarea:not([readonly]):not([disabled])').first();
+				if ($focusable.length) {
+					$focusable.focus();
+				}
+			}, 100);
+		});
+		
+		// Specific fix for confirmation modal (from admin/index.php)
+		$(document).on('shown.bs.modal', '#confirm_modal', function () {
+			$(this).removeAttr('aria-hidden');
+			$('#confirm_modal #confirm').removeAttr('aria-hidden').css({
+				'pointer-events': 'auto !important',
+				'z-index': '9999'
+			});
+		});
+		
+		// Restore aria-hidden when modal is hidden - but keep confirm button functional
+		$(document).on('hidden.bs.modal', '.modal', function () {
+			if ($(this).attr('id') !== 'confirm_modal') {
+				$(this).attr('aria-hidden', 'true');
+			}
+		});
+
 		$('.table').dataTable({
 			columnDefs: [
 				{ orderable: false, targets: [6] }
@@ -628,6 +882,12 @@ $(document).on('click', '.view_receipt', function(){
 		});
 		$('.dataTable td, .dataTable th').addClass('py-2 px-3 align-middle');
 	});
+	
+	// Function to show authentication error
+	function showAuthError(message) {
+		$('#authErrorMessage').text(message);
+		$('#authError').removeClass('d-none');
+	}
 	
 	function delete_order($id){
 		start_loader();
@@ -648,6 +908,35 @@ $(document).on('click', '.view_receipt', function(){
 					alert_toast("An error occurred.", 'error');
 					end_loader();
 				}
+			}
+		})
+	}
+	
+	function delete_order_item(orderId, itemId, itemName){
+		start_loader();
+		$.ajax({
+			url: 'orders/delete_order_item.php',
+			method: "POST",
+			data: { 
+				order_id: orderId,
+				item_id: itemId
+			},
+			dataType: "json",
+			error: err => {
+				console.log(err);
+				alert_toast("An error occurred while deleting the item.", 'error');
+				end_loader();
+			},
+			success: function(resp){
+				if (typeof resp == 'object' && resp.status == 'success') {
+					alert_toast("Item '" + resp.deleted_item + "' has been removed from the order.", 'success');
+					setTimeout(function() {
+						location.reload();
+					}, 800);
+				} else {
+					alert_toast(resp.message || "An error occurred while deleting the item.", 'error');
+				}
+				end_loader();
 			}
 		})
 	}
