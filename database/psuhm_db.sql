@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Sep 08, 2025 at 01:11 PM
+-- Generation Time: Oct 01, 2025 at 09:45 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -608,7 +608,6 @@ INSERT INTO `order_items` (`id`, `order_id`, `menu_id`, `price`, `quantity`, `se
 (455, 216, 11, 500.00, 1, 0),
 (456, 216, 13, 400.00, 1, 0),
 (457, 216, 10, 380.00, 1, 0),
-(458, 215, 24, 2000.00, 1, 0),
 (459, 217, 11, 500.00, 1, 1),
 (460, 217, 13, 400.00, 1, 1),
 (461, 216, 46, 200.00, 1, 0),
@@ -628,8 +627,6 @@ INSERT INTO `order_items` (`id`, `order_id`, `menu_id`, `price`, `quantity`, `se
 (475, 217, 46, 200.00, 1, 1),
 (476, 218, 46, 200.00, 1, 1),
 (477, 218, 9, 450.00, 1, 1),
-(478, 218, 11, 500.00, 1, 1),
-(479, 218, 29, 1200.00, 1, 1),
 (480, 219, 11, 500.00, 1, 1),
 (481, 219, 13, 400.00, 1, 1),
 (482, 219, 10, 380.00, 1, 1),
@@ -640,34 +637,17 @@ INSERT INTO `order_items` (`id`, `order_id`, `menu_id`, `price`, `quantity`, `se
 (487, 220, 13, 400.00, 1, 1),
 (488, 220, 10, 380.00, 1, 1),
 (489, 220, 18, 600.00, 1, 1),
-(490, 220, 17, 400.00, 1, 1);
-
---
--- Indexes for dumped tables
---
-
---
--- Indexes for table `order_items`
---
-ALTER TABLE `order_items`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `order_id` (`order_id`),
-  ADD KEY `menu_id` (`menu_id`);
-
---
--- AUTO_INCREMENT for dumped tables
---
-
---
--- AUTO_INCREMENT for table `order_items`
---
-ALTER TABLE `order_items`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=491;
-COMMIT;
-
-/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
-/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
-/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+(490, 220, 17, 400.00, 1, 1),
+(491, 219, 11, 500.00, 1, 0),
+(492, 219, 13, 400.00, 1, 0),
+(493, 219, 10, 380.00, 1, 0),
+(494, 220, 11, 500.00, 1, 0),
+(495, 220, 13, 400.00, 1, 0),
+(496, 221, 11, 500.00, 1, 1),
+(499, 222, 13, 400.00, 1, 0),
+(501, 221, 48, 40.00, 1, 0),
+(502, 223, 13, 400.00, 1, 1),
+(503, 223, 11, 500.00, 1, 0);
 
 -- --------------------------------------------------------
 
@@ -711,11 +691,11 @@ INSERT INTO `order_list` (`id`, `user_id`, `table_id`, `code`, `queue`, `total_a
 (211, 1, 1, '2025071600001', '00001', 1280.00, 1433.60, 2000.00, 566.40, 2, '2025-07-16 11:14:12', '2025-07-16 11:14:29', 'Dine-In', 'N/A', 0, 'cash', '', '', 153.60),
 (212, 1, 3, '2025073100001', '00001', 1280.00, 1024.00, 10000.00, 8976.00, 2, '2025-07-31 20:06:07', '2025-07-31 20:07:24', 'Dine-In', 'Senior Citizen', 20, 'cash', '', '', 0.00),
 (213, 1, 1, '2025073100002', '00002', 2180.00, 2441.60, 10000.00, 7558.40, 2, '2025-07-31 20:06:32', '2025-07-31 20:07:49', 'Dine-In', 'N/A', 0, 'cash', '', '', 261.60),
-(214, 1, 3, '2025073100003', '00003', 6311.00, 0.00, 0.00, 0.00, 1, '2025-07-31 22:20:39', '2025-09-08 19:08:16', 'Dine-In', 'N/A', NULL, NULL, '', '', 0.00),
-(215, 1, 4, '2025073100004', '00004', 3200.00, 0.00, 0.00, 0.00, 3, '2025-07-31 22:20:56', '2025-09-03 11:39:02', 'Dine-In', 'N/A', NULL, NULL, '', '', 0.00),
+(215, 1, 4, '2025073100004', '00004', 1200.00, 0.00, 0.00, 0.00, 3, '2025-07-31 22:20:56', '2025-10-01 14:53:01', 'Dine-In', 'N/A', NULL, NULL, '', '', 0.00),
 (216, 1, 1, '2025090200001', '00001', 1480.00, 1657.60, 2000.00, 342.40, 2, '2025-09-02 23:11:22', '2025-09-03 11:46:07', 'Dine-In', 'N/A', 0, 'cash', '', '', 177.60),
-(217, 1, 4, '2025090300001', '00001', 3600.00, 0.00, 0.00, 0.00, 0, '2025-09-03 11:44:51', '2025-09-08 19:09:54', 'Dine-In', 'N/A', NULL, NULL, '', '', 0.00),
-(218, 1, 1, '2025090800001', '00001', 1550.00, 0.00, 0.00, 0.00, 1, '2025-09-08 19:09:36', '2025-09-08 19:10:43', 'Dine-In', 'N/A', NULL, NULL, '', '', 0.00);
+(221, 1, 3, '2025100100001', '00001', 540.00, 0.00, 0.00, 0.00, 0, '2025-10-01 14:56:51', '2025-10-01 15:04:34', 'Dine-In', 'N/A', NULL, NULL, '', '', 0.00),
+(222, 1, 4, '2025100100002', '00002', 400.00, 0.00, 0.00, 0.00, 0, '2025-10-01 14:57:47', '2025-10-01 14:58:19', 'Dine-In', 'N/A', NULL, NULL, '', '', 0.00),
+(223, 1, 1, '2025100100003', '00003', 900.00, 0.00, 0.00, 0.00, 0, '2025-10-01 15:20:45', '2025-10-01 15:20:45', 'Dine-In', 'N/A', NULL, NULL, '', '', 0.00);
 
 -- --------------------------------------------------------
 
@@ -831,6 +811,7 @@ ALTER TABLE `menu_list`
 -- Indexes for table `order_items`
 --
 ALTER TABLE `order_items`
+  ADD PRIMARY KEY (`id`),
   ADD KEY `order_id` (`order_id`),
   ADD KEY `menu_id` (`menu_id`);
 
@@ -882,10 +863,16 @@ ALTER TABLE `menu_list`
   MODIFY `id` int(30) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=49;
 
 --
+-- AUTO_INCREMENT for table `order_items`
+--
+ALTER TABLE `order_items`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=504;
+
+--
 -- AUTO_INCREMENT for table `order_list`
 --
 ALTER TABLE `order_list`
-  MODIFY `id` int(30) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=219;
+  MODIFY `id` int(30) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=224;
 
 --
 -- AUTO_INCREMENT for table `system_info`
