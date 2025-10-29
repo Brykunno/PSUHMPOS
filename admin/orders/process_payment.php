@@ -6,36 +6,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $payment_method = $_POST['payment_method'];
     $cash_amount = floatval($_POST['cash_amount']);
     $discount_type = $_POST['discount_type'];
+    $discount_code = isset($_POST['discount_code']) ? trim($_POST['discount_code']) : '';
     $discount_percent = floatval($_POST['discount_percent']);
     $subtotal = floatval($_POST['subtotal']);
     $grand_total = floatval($_POST['grand_total']);
     $change = floatval($_POST['change']);
     $emoney_reference = $_POST['emoney_reference'];
     $card_number = $_POST['card_number'];
-    $vat_amount = $_POST['vat_amount'];
+    $vat_amount = floatval($_POST['vat_amount']);
 
+    // Start transaction
+    $conn->begin_transaction();
 
-    // Update the order in the database
-    $stmt = $conn->prepare("UPDATE order_list SET 
-        payment_method = ?, 
-        tendered_amount = ?, 
-        discount_type = ?, 
-        discount_percent = ?, 
-        total_amount = ?, 
-        discounted_amount = ?, 
-        change_amount = ?, 
-        reference_number = ?, 
-        card_number = ?, 
-        vat_amount = ?,
-        status = 2
-        WHERE id = ?");
-    $stmt->bind_param("sdsdddsssdi", $payment_method, $cash_amount, $discount_type, $discount_percent,  $subtotal,$grand_total, $change, $emoney_reference, $card_number,$vat_amount, $order_id);
+    try {
+        // Update the order in the database
+        $stmt = $conn->prepare("UPDATE order_list SET 
+            payment_method = ?, 
+            tendered_amount = ?, 
+            discount_type = ?, 
+            discount_percent = ?, 
+            total_amount = ?, 
+            discounted_amount = ?, 
+            change_amount = ?, 
+            reference_number = ?, 
+            card_number = ?, 
+            vat_amount = ?,
+            status = 2
+            WHERE id = ?");
+        $stmt->bind_param("sdsdddsssdi", $payment_method, $cash_amount, $discount_type, $discount_percent, $subtotal, $grand_total, $change, $emoney_reference, $card_number, $vat_amount, $order_id);
+        
+        if (!$stmt->execute()) {
+            throw new Exception("Failed to update order: " . $stmt->error);
+        }
 
-    if($stmt->execute()){
+        // Insert discount code if provided
+        if (!empty($discount_code)) {
+            $stmt2 = $conn->prepare("INSERT INTO discount_code (order_list_id, discount_code) VALUES (?, ?)");
+            $stmt2->bind_param("is", $order_id, $discount_code);
+            
+            if (!$stmt2->execute()) {
+                throw new Exception("Failed to insert discount code: " . $stmt2->error);
+            }
+            $stmt2->close();
+        }
+
+        $stmt->close();
+        
+        // Commit transaction
+        $conn->commit();
         echo json_encode(['status' => 'success']);
-    } else {
-        echo json_encode(['status' => 'error', 'msg' => $conn->error]);
+        
+    } catch (Exception $e) {
+        // Rollback on error
+        $conn->rollback();
+        echo json_encode(['status' => 'error', 'msg' => $e->getMessage()]);
     }
+    
     exit;
 }
 ?>

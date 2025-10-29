@@ -851,7 +851,7 @@ $table_id = isset($_GET['table_id']) ? intval($_GET['table_id']) : 0;
                                     while($row = $bestSellers->fetch_assoc()):
                                     ?>
                                     <div class="col <?= isset($cid) && $cid == $row['category_id'] ? "" : "d-none" ?> menu-item" data-cat-id='0'>
-                                        <button class="btn btn-default btn-block btn-xs rounded px-2 bg-gradient-light border item-btn text-left" type="button" data-id='<?= $row['menu_id'] ?>' data-price='<?= $row['price'] ?>'>
+                                        <button class="btn btn-default btn-block btn-xs rounded px-2 bg-gradient-light border item-btn text-left" type="button" data-id='<?= $row['menu_id'] ?>' data-price='<?= $row['price'] ?>' data-item='<?= $row['menu_name'] ?>'>
                                             <div class="d-flex flex-column align-items-center">
                                                 <!-- Image should take up most of the space -->
                                                 <img src="<?= isset($row['image_path']) && !empty($row['image_path']) ? base_url . 'uploads/image/' . htmlspecialchars($row['image_path']) : 'path_to_placeholder_image.jpg' ?>" 
@@ -864,18 +864,18 @@ $table_id = isset($_GET['table_id']) ? intval($_GET['table_id']) : 0;
                                                     <small class="text-muted"><?= $row['code'] ?></small>
                                                     <br/>
                                                         <div class="menu-stats-container">
-        <div class="stat-item orders">
-            <i class="fas fa-chart-line"></i>
-            <span class="stat-number"><?= $row['total_orders'] ?></span>
-            <span class="stat-label"><?= $row['total_orders']<2?"order":"orders" ?></span>
-        </div>
-        
-        
-        <div class="stat-item category">
-            <i class="fas fa-utensils"></i>
-            <span class="stat-text"><?= $cat_name ?></span>
-        </div>
-    </div>
+                                                    <div class="stat-item orders">
+                                                        <i class="fas fa-chart-line"></i>
+                                                        <span class="stat-number"><?= $row['total_orders'] ?></span>
+                                                        <span class="stat-label"><?= $row['total_orders']<2?"order":"orders" ?></span>
+                                                    </div>
+                                                    
+                                                    
+                                                    <div class="stat-item category">
+                                                        <i class="fas fa-utensils"></i>
+                                                        <span class="stat-text"><?= $cat_name ?></span>
+                                                    </div>
+                                                </div>
 
 
                                                     <div class="font-weight-bold mt-1">₱<?= number_format($row['price'], 2) ?></div> <!-- Peso sign added -->
@@ -894,7 +894,7 @@ $table_id = isset($_GET['table_id']) ? intval($_GET['table_id']) : 0;
                                     while($row = $menus->fetch_assoc()):
                                     ?>
                                     <div class="col <?= isset($cid) && $cid == $row['category_id'] ? "" : "d-none" ?> menu-item" data-cat-id='<?= $row['category_id'] ?>'>
-                                        <button class="btn btn-default btn-block btn-xs rounded px-2 bg-gradient-light border item-btn text-left" type="button" data-id='<?= $row['id'] ?>' data-price='<?= $row['price'] ?>'>
+                                        <button class="btn btn-default btn-block btn-xs rounded px-2 bg-gradient-light border item-btn text-left" type="button" data-id='<?= $row['id'] ?>' data-price='<?= $row['price'] ?>' data-item='<?= htmlspecialchars($row['name']) ?>'>
                                             <div class="d-flex flex-column align-items-center">
                                                 <!-- Image should take up most of the space -->
                                                 <img src="<?= isset($row['image_path']) && !empty($row['image_path']) ? base_url . 'uploads/image/' . htmlspecialchars($row['image_path']) : 'path_to_placeholder_image.jpg' ?>" 
@@ -902,7 +902,7 @@ $table_id = isset($_GET['table_id']) ? intval($_GET['table_id']) : 0;
                                                      style="width: 100%; height: 100px; object-fit: cover; border-radius: 8px;">
                                                 <!-- Text and price below the image -->
                                                 <div class="text-center mt-2">
-                                                    <div class="font-weight-bold"><?= htmlspecialchars($row['name']) ?></div>
+                                                    <div class="font-weight-bold item-name"><?= htmlspecialchars($row['name']) ?></div>
                                                     <small class="text-muted"><?= $row['code'] ?></small>
                                                     <div class="font-weight-bold mt-1">₱<?= number_format($row['price'], 2) ?></div> <!-- Peso sign added -->
                                                 </div>
@@ -1098,6 +1098,13 @@ $table_id = isset($_GET['table_id']) ? intval($_GET['table_id']) : 0;
             </div>
         </div>
     </div>
+    <!-- ✅ Buttons Section -->
+<div class="order-type-actions mt-3 text-center">
+  <button type="button" class="btn btn-success btn-sm" id="btnDone"  data-dismiss="modal">
+    <i class="fa fa-check mr-1"></i>Done
+  </button>
+ 
+</div>
 </div>
             </div>
                 </form>
@@ -1193,11 +1200,42 @@ $table_id = isset($_GET['table_id']) ? intval($_GET['table_id']) : 0;
     </div>
   </div>
 </div>
+
+<!-- Add Note Modal -->
+<div class="modal fade" id="addNoteModal" tabindex="-1" role="dialog" aria-labelledby="addNoteModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header bg-info text-white">
+        <h5 class="modal-title" id="addNoteModalLabel">
+          <i class="fa fa-sticky-note mr-2"></i>Add Special Instructions
+        </h5>
+        <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="itemNotesInput">Special Instructions / Notes:</label>
+          <textarea class="form-control" id="itemNotesInput" rows="3" placeholder="e.g., No onions, Extra spicy, Well done, etc."></textarea>
+          <small class="form-text text-muted">Add any special requests or customizations for this item.</small>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-info" id="saveNoteBtn">
+          <i class="fa fa-save mr-1"></i>Save Note
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <noscript id="item-clone">
 <div class="d-flex w-100 bg-gradient-light product-item">
     <div class="col-3 text-center font-weight-bolder m-0 border align-middle">
         <input type="hidden" name="menu_id[]" value="">
         <input type="hidden" name="price[]" value="">
+        <input type="hidden" name="notes[]" value="">
         <div class="input-group input-group-sm">
             <button class="btn btn-warning btn-xs btn-flat minus-qty" type="button"><i class="fa fa-minus"></i></button>
             <input type="number" min = '1' value='1' name="quantity[]" class="form-control form-control-xs rounded-0 text-center" required readonly>
@@ -1206,8 +1244,15 @@ $table_id = isset($_GET['table_id']) ? intval($_GET['table_id']) : 0;
     </div>
     <div class="col-6 font-weight-bolder m-0 border align-middle">
         <div style="line-height:1em" class="text-sm">
-        <div class="w-100 d-flex align-items-center"><a href="javascript:void(0)" class="text-danger text-decoration-none rem-item mr-1"><i class="fa fa-times"></i></a> <p class="m-0 truncate-1 menu_name">Menu name</p></div>
+        <div class="w-100 d-flex align-items-center">
+            <a href="javascript:void(0)" class="text-danger text-decoration-none rem-item mr-1"><i class="fa fa-times"></i></a> 
+            <p class="m-0 truncate-1 menu_name flex-grow-1">Menu name</p>
+            <a href="javascript:void(0)" class="text-info text-decoration-none add-note-btn ml-1" title="Add Note"><i class="fa fa-sticky-note"></i></a>
+        </div>
         <div><small class="text-muted menu_price">x 0.00</small></div>
+        <div class="item-notes-display" style="display: none;">
+            <small class="text-primary"><i class="fa fa-info-circle"></i> <span class="notes-text"></span></small>
+        </div>
         </div>
     </div>
     <div class="col-3 font-weight-bolder m-0 border align-middle text-right menu_total">0.00</div>
@@ -1324,7 +1369,7 @@ $(function() {
   $('.item-btn').click(function() {
     const id = $(this).attr('data-id');
     const price = $(this).attr('data-price');
-    const name = $(this).text().trim();
+    const name = $(this).attr('data-item');
     let item = $($('noscript#item-clone').html()).clone();
 
     if ($('#order-items-body .product-item[data-id="' + id + '"]').length > 0) {
@@ -1358,11 +1403,54 @@ $(function() {
       item.find('input[name="quantity[]"]').val(qty + 1);
       calc_total();
     });
+    
+    // Add note functionality
+    item.find('.add-note-btn').click(function(e) {
+      e.preventDefault();
+      const currentItem = $(this).closest('.product-item');
+      const currentNotes = currentItem.find('input[name="notes[]"]').val();
+      
+      // Set current notes in modal
+      $('#itemNotesInput').val(currentNotes);
+      
+      // Store reference to current item
+      $('#addNoteModal').data('current-item', currentItem);
+      
+      // Show modal
+      $('#addNoteModal').modal('show');
+    });
 
     $(document).on('click', '.rem-item', function() {
       $(this).closest('.product-item').remove();
       calc_total();
     });
+  });
+  
+  // Save note button handler
+  $('#saveNoteBtn').click(function() {
+    const noteText = $('#itemNotesInput').val().trim();
+    const currentItem = $('#addNoteModal').data('current-item');
+    
+    if (currentItem) {
+      // Update hidden notes field
+      currentItem.find('input[name="notes[]"]').val(noteText);
+      
+      // Update notes display
+      if (noteText) {
+        currentItem.find('.notes-text').text(noteText);
+        currentItem.find('.item-notes-display').show();
+        currentItem.find('.add-note-btn i').removeClass('fa-sticky-note').addClass('fa-edit');
+        currentItem.find('.add-note-btn').attr('title', 'Edit Note');
+      } else {
+        currentItem.find('.item-notes-display').hide();
+        currentItem.find('.add-note-btn i').removeClass('fa-edit').addClass('fa-sticky-note');
+        currentItem.find('.add-note-btn').attr('title', 'Add Note');
+      }
+    }
+    
+    // Close modal and clear input
+    $('#addNoteModal').modal('hide');
+    $('#itemNotesInput').val('');
   });
 
   $('input[name="tendered_amount"], input[name="total_amount"]').on('input change', calculateChange);
@@ -1478,16 +1566,25 @@ $(function() {
       }
     }
 
-    // Prepare order summary
+    // Prepare order summary with notes
     let orderSummary = '';
     $('#order-items-body .product-item').each(function() {
       const name = $(this).find('.menu_name').text();
       const qty = $(this).find('input[name="quantity[]"]').val();
       const price = parseFloat($(this).find('input[name="price[]"]').val());
+      const notes = $(this).find('input[name="notes[]"]').val();
       const total = (qty * price).toFixed(2);
-      orderSummary += `<li class="list-group-item d-flex justify-content-between">
-                          <span>${name} x ${qty}</span>
-                          <strong>₱${total}</strong>
+      
+      let notesHtml = '';
+      if (notes && notes.trim() !== '') {
+        notesHtml = `<br><small class="text-muted"><i class="fa fa-sticky-note"></i> ${notes}</small>`;
+      }
+      
+      orderSummary += `<li class="list-group-item d-flex justify-content-between align-items-start">
+                          <div class="flex-grow-1">
+                            <span>${name} x ${qty}</span>${notesHtml}
+                          </div>
+                          <strong class="ml-2">₱${total}</strong>
                        </li>`;
     });
 
@@ -1552,16 +1649,25 @@ $(function() {
       }
     }
 
-    // Prepare order summary
+    // Prepare order summary with notes
     let orderSummary = '';
     $('#order-items-body .product-item').each(function() {
       const name = $(this).find('.menu_name').text();
       const qty = $(this).find('input[name="quantity[]"]').val();
       const price = parseFloat($(this).find('input[name="price[]"]').val());
+      const notes = $(this).find('input[name="notes[]"]').val();
       const total = (qty * price).toFixed(2);
-      orderSummary += `<li class="list-group-item d-flex justify-content-between">
-                          <span>${name} x ${qty}</span>
-                          <strong>₱${total}</strong>
+      
+      let notesHtml = '';
+      if (notes && notes.trim() !== '') {
+        notesHtml = `<br><small class="text-muted"><i class="fa fa-sticky-note"></i> ${notes}</small>`;
+      }
+      
+      orderSummary += `<li class="list-group-item d-flex justify-content-between align-items-start">
+                          <div class="flex-grow-1">
+                            <span>${name} x ${qty}</span>${notesHtml}
+                          </div>
+                          <strong class="ml-2">₱${total}</strong>
                        </li>`;
     });
 

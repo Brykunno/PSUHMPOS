@@ -7,6 +7,7 @@ $change = isset($_GET['change']) ? floatval($_GET['change']) : 0;
 $grand_total = isset($_GET['grand_total']) ? floatval($_GET['grand_total']) : 0;
 $total_amount = isset($_GET['total_amount']) ? floatval($_GET['total_amount']) : 0;
 $discount_type = isset($_GET['discount_type']) ? $_GET['discount_type'] : ''; 
+$discount_code = isset($_GET['discount_code']) ? htmlspecialchars($_GET['discount_code']) : '';
 
 $is_vat_exempt = false;
 if (strpos(strtolower($discount_type), 'senior') !== false || strpos(strtolower($discount_type), 'pwd') !== false) {
@@ -168,16 +169,19 @@ hr {
 
   <hr>
   <div style="display:flex;"><div style="width: 70%;">SUBTOTAL:</div><div style="width:30%; text-align:right;"><?= format_num($total_amount, 2) ?></div></div>
-  <div style="display:flex;"><div style="width: 70%;">12% VAT:</div><div style="width:30%; text-align:right;"><?= format_num($calculated_vat_amount, 2) ?></div></div>
+  <div style="display:flex;"><div style="width: 70%;">12% VAT: <?= $payment_method ?></div><div style="width:30%; text-align:right;"><?= format_num($calculated_vat_amount, 2) ?></div></div>
+  <?php if (!empty($discount_code)): ?>
+  <div style="display:flex;"><div style="width: 70%;">Discount Code (<?= $_GET['discount_type'] ?>):</div><div style="width:30%; text-align:right;"><?= $discount_code ?></div></div>
+  <?php endif; ?>
   <div style="display:flex;"><div style="width: 70%;">Discount (<?= $discount_percent ?>%):</div><div style="width:30%; text-align:right;"><?= format_num($discount_amount, 2) ?></div></div>
   <div style="display:flex;"><div style="width: 70%; font-weight:bold;">TOTAL:</div><div style="width:30%; text-align:right; font-weight:bold;"><?= format_num($grand_total, 2) ?></div></div>
-  <?php if($payment_method == 'cash'): ?>
+  <?php if($p_method == 'cash'): ?>
     <div style="display:flex;"><div style="width: 70%;">CASH:</div><div style="width:30%; text-align:right;"><?= format_num($cash, 2) ?></div></div>
     <div style="display:flex;"><div style="width: 70%;">CHANGE:</div><div style="width:30%; text-align:right;"><?= format_num($change, 2) ?></div></div>
-  <?php elseif($payment_method == 'emoney'): ?>
+  <?php elseif($p_method == 'emoney'): ?>
     <div style="display:flex;"><div style="width: 70%;">E-Money Ref:</div><div style="width:30%; text-align:right;"><?= htmlspecialchars($emoney_reference) ?></div></div>
     <div style="display:flex;"><div style="width: 70%;">AMOUNT PAID:</div><div style="width:30%; text-align:right;"><?= format_num($grand_total, 2) ?></div></div>
-  <?php elseif($payment_method == 'credit_card'): ?>
+  <?php elseif($p_method == 'credit_card'): ?>
     <div style="display:flex;"><div style="width: 70%;">Card Number:</div><div style="width:30%; text-align:right;"><?= $card_number ? '**** **** **** ' . substr($card_number, -4) : '' ?></div></div>
     <div style="display:flex;"><div style="width: 70%;">AMOUNT PAID:</div><div style="width:30%; text-align:right;"><?= format_num($grand_total, 2) ?></div></div>
   <?php endif; ?>
@@ -210,7 +214,7 @@ hr {
 
 <script>
   document.title = "Print Receipt";
-  window.print();
+  // window.print();
 </script>
 
 </body>
