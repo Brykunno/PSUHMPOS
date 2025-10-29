@@ -25,8 +25,17 @@ if (isset($_GET['id']) && $_GET['id'] > 0) {
         $user_id = isset($order['user_id']) ? $order['user_id'] : '';
         $discount_amount = $total_amount - $grand_total;
         $vat_amount = isset($order['vat_amount']) ? floatval($order['vat_amount']) : 0;
+        $discount  = $discount_percent == 0? 0: format_num($discount_amount, 2);
        
     }
+
+     $dcqry = $conn->query("SELECT * FROM `discount_code` WHERE order_list_id = '{$_GET['id']}'");
+     if ($dcqry->num_rows > 0) {
+         $dc = $dcqry->fetch_assoc();
+ 
+         $discount_code = isset($dc['discount_code']) ? $dc['discount_code'] : '';
+     }
+
     if (isset($user_id)) {
         $user = $conn->query("SELECT username FROM `users` WHERE id = '{$user_id}'");
         if ($user->num_rows > 0) {
@@ -145,7 +154,8 @@ hr {
   </div>
 
   <?php 
-    if (isset($id)):
+    if (isset($_GET['id'])):
+      $id = $_GET['id'];
       $items = $conn->query("SELECT oi.*, m.name FROM `order_items` oi INNER JOIN `menu_list` m ON oi.menu_id = m.id WHERE oi.order_id = '{$id}'");
       while ($row = $items->fetch_assoc()):
   ?>
@@ -160,7 +170,10 @@ hr {
   <hr>
   <div style="display:flex;"><div style="width: 70%;">SUBTOTAL:</div><div style="width:30%; text-align:right;"><?= format_num($total_amount, 2) ?></div></div>
   <div style="display:flex;"><div style="width: 70%;">12% VAT:</div><div style="width:30%; text-align:right;"><?= format_num($vat_amount, 2) ?></div></div>
-  <div style="display:flex;"><div style="width: 70%;">Discount (<?= $discount_percent ?>%):</div><div style="width:30%; text-align:right;"><?php $discount_percent == 0? 0: format_num($discount_amount, 2) ?></div></div>
+  <?php if (!empty($discount_code)): ?>
+  <div style="display:flex;"><div style="width: 70%;">Discount Code (<?= $discount_type ?>):</div><div style="width:30%; text-align:right;"><?= $discount_code ?></div></div>
+  <?php endif; ?>
+  <div style="display:flex;"><div style="width: 70%;">Discount (<?= $discount_percent ?>%):</div><div style="width:30%; text-align:right;"><?= $discount_percent == 0? 0: format_num($discount_amount, 2) ?></div></div>
   <div style="display:flex;"><div style="width: 70%; font-weight:bold;">TOTAL:</div><div style="width:30%; text-align:right; font-weight:bold;"><?= format_num($grand_total, 2) ?></div></div>
   <?php if($payment_method == 'cash'): ?>
     <div style="display:flex;"><div style="width: 70%;">CASH:</div><div style="width:30%; text-align:right;"><?= format_num($cash, 2) ?></div></div>

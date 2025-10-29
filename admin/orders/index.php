@@ -393,6 +393,14 @@ while ($row = $qry->fetch_assoc()):
   </select>
 </div>
 
+<!-- Discount Code (shown when a discount is selected) -->
+<div class="form-group d-none" id="discount_code_group<?= $order_id ?>">
+  <label for="discount_code<?= $order_id ?>">Discount Code</label>
+  <input type="text" class="form-control" id="discount_code<?= $order_id ?>" name="discount_code" placeholder="Enter discount code">
+  <small class="form-text text-muted">Required when a discount is selected.</small>
+  
+</div>
+
           <div class="form-group payment-input cash-input">
             <label for="cash_amount<?= $order_id ?>">Cash Amount</label>
             <input type="number" step="0.01"    class="form-control" name="cash_amount" id="cash_amount<?= $order_id ?>">
@@ -447,7 +455,7 @@ while ($row = $qry->fetch_assoc()):
           
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-success confirm_payment" data-id="<?php echo $order_id ?>" >Confirm Payment</button>
+          <button type="button" class="btn btn-primary preview_receipt" data-id="<?php echo $order_id ?>" >Preview Receipt</button>
           <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
         </div>
       </form>
@@ -463,6 +471,33 @@ while ($row = $qry->fetch_assoc()):
 			</table>
 		</div>
 	</div>
+</div>
+
+<!-- Receipt Preview Modal -->
+<div class="modal fade" id="receiptPreviewModal" tabindex="-1" role="dialog" aria-labelledby="receiptPreviewModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header bg-info text-white">
+        <h5 class="modal-title" id="receiptPreviewModalLabel">
+          <i class="fa fa-receipt mr-2"></i>Receipt Preview
+        </h5>
+        <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <iframe id="receiptPreviewFrame" style="width: 100%; height: 500px; border: 1px solid #ddd;"></iframe>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-success" id="confirmPaymentFromPreview">
+          <i class="fa fa-check mr-1"></i>Confirm Payment
+        </button>
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">
+          <i class="fa fa-times mr-1"></i>Cancel
+        </button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Admin Authentication Modal for Delete Order -->
@@ -577,7 +612,10 @@ while ($row = $qry->fetch_assoc()):
 			$('#authError').addClass('d-none');
 		});
 		
-		$('.confirm_payment').click(function(){
+		// Store payment data globally for preview and confirmation
+		var currentPaymentData = {};
+		
+		$('.preview_receipt').click(function(){
     var order_id = $(this).attr('data-id');
     var modal = $('#billoutConfirmationModal' + order_id);
     var payment_method = modal.find('input[name="payment_method"]:checked').val();
@@ -587,12 +625,12 @@ while ($row = $qry->fetch_assoc()):
         if(!isValidCardNumber(card_number)) {
             alert_toast('Please enter a valid credit card number.', 'error');
             modal.find('#card_number' + order_id).focus();
-            return false; // Prevent further processing
+            return false;
         }
     }
 
-    var cash = parseFloat(modal.find('#cash_amount' + order_id).val()) || 0;
-    var grand_total = parseFloat(modal.find('#discounted_price' + order_id).text().replace(/[^\d.]/g, '')) || 0;
+  var cash = parseFloat(modal.find('#cash_amount' + order_id).val()) || 0;
+  var grand_total = parseFloat(modal.find('#discounted_price' + order_id).text().replace(/[^\d.]/g, '')) || 0;
 
     // Cash validation
     if(payment_method === 'cash') {
@@ -608,7 +646,16 @@ while ($row = $qry->fetch_assoc()):
         }
     }
 
-    // Gather payment details
+  // Require discount code if a discount is selected
+  var selectedDiscount = modal.find('#discount_type' + order_id).val() || 'N/A';
+  var selectedDiscountCode = modal.find('#discount_code' + order_id).val() || '';
+  if(selectedDiscount !== 'N/A' && selectedDiscountCode.trim() === '') {
+    alert_toast('Please enter a discount code.', 'error');
+    modal.find('#discount_code' + order_id).focus();
+    return false;
+  }
+
+  // Gather payment details
     var cash = modal.find('#cash_amount' + order_id).val() || 0;
     var change = modal.find('#change_amount' + order_id).text().replace(/[^\d.]/g, '') || 0;
     var payment_method = modal.find('input[name="payment_method"]:checked').val();
@@ -618,64 +665,119 @@ while ($row = $qry->fetch_assoc()):
     var grand_total = modal.find('#discounted_price' + order_id).text().replace(/[^\d.]/g, '') || 0;
     var emoney_reference = modal.find('#emoney_ref' + order_id).val() || '';
     var card_number = modal.find('#card_number' + order_id).val() || '';
-    var vat = modal.find('#vat_amount' + order_id).text().replace(/[^\d.]/g, '') || 0;
-    console.log(discount_type)
-    // 1. Print the receipt
-    var url = _base_url_ + "admin/sales/receipt.php?id=" + order_id + 
+  var vat = modal.find('#vat_amount' + order_id).text().replace(/[^\d.]/g, '') || 0;
+  var discount_code = modal.find('#discount_code' + order_id).val() || '';
+  
+    // Store payment data for later confirmation
+    currentPaymentData = {
+        order_id: order_id,
+        cash: cash,
+        change: change,
+        payment_method: payment_method,
+        discount_type: discount_type,
+        discount_percent: discount_percent,
+        discount_code: discount_code,
+        subtotal: subtotal,
+        grand_total: grand_total,
+        emoney_reference: emoney_reference,
+        card_number: card_number,
+        vat: vat
+    };
+    
+    // Build receipt preview URL
+  var url = _base_url_ + "admin/sales/receipt.php?id=" + order_id + 
     "&cash=" + encodeURIComponent(cash) +
     "&change=" + encodeURIComponent(change) +
     "&payment_method=" + encodeURIComponent(payment_method) +
     "&discount_percent=" + encodeURIComponent(discount_percent) +
     "&discount_type=" + encodeURIComponent(discount_type) +
+  "&discount_code=" + encodeURIComponent(discount_code) +
     "&grand_total=" + encodeURIComponent(grand_total) +
     "&total_amount=" + encodeURIComponent(subtotal) +
     "&emoney_reference=" + encodeURIComponent(emoney_reference) +
     "&card_number=" + encodeURIComponent(card_number) +
     "&vat_amount=" + encodeURIComponent(vat);
-    var nw = window.open(url, '_blank', 
-        "width=" + ($(window).width() * .8) + ",left=" + ($(window).width() * .1) + 
-        ",height=" + ($(window).height() * .8) + ",top=" + ($(window).height() * .1));
-    setTimeout(() => {
-        nw.print();
-        setTimeout(() => {
-            nw.close();
+    
+    // Load receipt in iframe
+    $('#receiptPreviewFrame').attr('src', url);
+    
+    // Hide billout modal and show preview modal
+    modal.modal('hide');
+    $('#receiptPreviewModal').modal('show');
+});
 
-            // 2. Update the database after printing
-            $.ajax({
-                url: 'orders/process_payment.php',
-                method: 'POST',
-                data: {
-                    order_id: order_id,
-                    payment_method: payment_method,
-                    cash_amount: cash,
-                    discount_type: discount_type,
-                    discount_percent: discount_percent,
-                    vat: vat,
-                    subtotal: subtotal,
-                    grand_total: grand_total,
-                    change: change,
-                    emoney_reference: emoney_reference,
-                    card_number: card_number,
-                    vat_amount: vat
-                },
-                dataType: 'json',
-                success: function(resp) {
-                    if(resp.status === 'success') {
-                        alert_toast('Payment confirmed!', 'success');
-                        setTimeout(function() {
-                            location.reload();
-                        }, 800);
-                    } else {
-                        alert_toast('Failed to confirm payment.', 'error');
-                    }
-                },
-                error: function(xhr) {
-                    alert_toast('Server error: ' + xhr.responseText, 'error');
-                }
-            });
-
-        }, 300);
-    }, 200);
+// Confirm payment from preview modal
+$('#confirmPaymentFromPreview').click(function(){
+    var data = currentPaymentData;
+    
+    if(!data.order_id) {
+        alert_toast('No payment data found.', 'error');
+        return;
+    }
+    
+    // Show loading
+    $(this).prop('disabled', true).html('<i class="fa fa-spinner fa-spin mr-1"></i>Processing...');
+    
+    // Update the database
+    $.ajax({
+        url: 'orders/process_payment.php',
+        method: 'POST',
+        data: {
+            order_id: data.order_id,
+            payment_method: data.payment_method,
+            cash_amount: data.cash,
+            discount_type: data.discount_type,
+            discount_percent: data.discount_percent,
+            discount_code: data.discount_code,
+            vat: data.vat,
+            subtotal: data.subtotal,
+            grand_total: data.grand_total,
+            change: data.change,
+            emoney_reference: data.emoney_reference,
+            card_number: data.card_number,
+            vat_amount: data.vat
+        },
+        dataType: 'json',
+        success: function(resp) {
+            if(resp.status === 'success') {
+                alert_toast('Payment confirmed!', 'success');
+                
+                // Print the receipt
+                var url = _base_url_ + "admin/sales/receipt.php?id=" + data.order_id + 
+                    "&cash=" + encodeURIComponent(data.cash) +
+                    "&change=" + encodeURIComponent(data.change) +
+                    "&payment_method=" + encodeURIComponent(data.payment_method) +
+                    "&discount_percent=" + encodeURIComponent(data.discount_percent) +
+                    "&discount_type=" + encodeURIComponent(data.discount_type) +
+                    "&discount_code=" + encodeURIComponent(data.discount_code) +
+                    "&grand_total=" + encodeURIComponent(data.grand_total) +
+                    "&total_amount=" + encodeURIComponent(data.subtotal) +
+                    "&emoney_reference=" + encodeURIComponent(data.emoney_reference) +
+                    "&card_number=" + encodeURIComponent(data.card_number) +
+                    "&vat_amount=" + encodeURIComponent(data.vat);
+                
+                var nw = window.open(url, '_blank', 
+                    "width=" + ($(window).width() * .8) + ",left=" + ($(window).width() * .1) + 
+                    ",height=" + ($(window).height() * .8) + ",top=" + ($(window).height() * .1));
+                    
+                setTimeout(() => {
+                    nw.print();
+                    setTimeout(() => {
+                        nw.close();
+                        location.reload();
+                    }, 300);
+                }, 200);
+            } else {
+                alert_toast('Failed to confirm payment: ' + (resp.msg || 'Unknown error'), 'error');
+                console.log(resp.msg);
+                $('#confirmPaymentFromPreview').prop('disabled', false).html('<i class="fa fa-check mr-1"></i>Confirm Payment');
+            }
+        },
+        error: function(xhr) {
+            alert_toast('Server error: ' + xhr.responseText, 'error');
+            $('#confirmPaymentFromPreview').prop('disabled', false).html('<i class="fa fa-check mr-1"></i>Confirm Payment');
+        }
+    });
 });
 
 	$('.billout_receipt').click(function(){
@@ -990,6 +1092,13 @@ $(document).ready(function() {
     // Discount change
     modal.find('#discount_type' + order_id).on('change', function() {
       recalcBillout();
+      var val = $(this).val() || 'N/A';
+      if (val !== 'N/A') {
+        modal.find('#discount_code_group' + order_id).removeClass('d-none');
+      } else {
+        modal.find('#discount_code_group' + order_id).addClass('d-none');
+        modal.find('#discount_code' + order_id).val('');
+      }
     });
 
     // Cash input change
@@ -1029,6 +1138,14 @@ function recalcBillout() {
     // Initialize on modal show
     modal.on('shown.bs.modal', function() {
       modal.find('#discount_type' + order_id).trigger('change');
+      // Ensure correct visibility of discount code group
+      var currentVal = modal.find('#discount_type' + order_id).val() || 'N/A';
+      if (currentVal !== 'N/A') {
+        modal.find('#discount_code_group' + order_id).removeClass('d-none');
+      } else {
+        modal.find('#discount_code_group' + order_id).addClass('d-none');
+        modal.find('#discount_code' + order_id).val('');
+      }
       modal.find('#cash_amount' + order_id).val('');
       modal.find('#change_amount' + order_id).text('₱0.00');
     });

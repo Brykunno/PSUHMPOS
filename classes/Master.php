@@ -306,10 +306,11 @@ Class Master extends DBConnection {
                     $mid = $this->conn->real_escape_string($menu_id);
                     $p = $this->conn->real_escape_string($_POST['price'][$k]);
                     $q = $this->conn->real_escape_string($_POST['quantity'][$k]);
-                    $items_data .= ($items_data ? ", " : "") . "('{$oid}', '{$mid}', '{$p}', '{$q}')";
+                    $n = $this->conn->real_escape_string($_POST['notes'][$k]);
+                    $items_data .= ($items_data ? ", " : "") . "('{$oid}', '{$mid}', '{$p}', '{$q}', '{$n}')";
                 }
     
-                $sql2 = "INSERT INTO `order_items` (`order_id`, `menu_id`, `price`, `quantity`) VALUES {$items_data}";
+                $sql2 = "INSERT INTO `order_items` (`order_id`, `menu_id`, `price`, `quantity`, `notes`) VALUES {$items_data}";
                 error_log("SQL Order Items: $sql2");
     
                 $save2 = $this->conn->query($sql2);
@@ -448,10 +449,10 @@ Class Master extends DBConnection {
         if(isset($listed) && count($listed) > 0){
             $swhere = " and order_list.id not in (".implode(",", $listed).")";
         }
-        $orders = $this->conn->query("SELECT order_list.id, order_list.queue, order_list.order_type,table_list.table_number FROM `order_list` INNER JOIN table_list ON order_list.table_id = table_list.id where order_list.status = 0 {$swhere} order by abs(unix_timestamp(order_list.date_created)) asc limit 10");
+        $orders = $this->conn->query("SELECT order_list.id, order_list.queue, order_list.order_type, COALESCE(table_list.table_number, 'N/A') as table_number FROM `order_list` LEFT JOIN table_list ON order_list.table_id = table_list.id where order_list.status = 0 {$swhere} order by abs(unix_timestamp(order_list.date_created)) asc limit 10");
         $data = [];
         while($row = $orders->fetch_assoc()){
-            $items = $this->conn->query("SELECT oi.*, concat(m.code, m.name) as `item` FROM `order_items` oi inner join menu_list m on oi.menu_id = m.id where order_id = '{$row['id']}'");
+            $items = $this->conn->query("SELECT oi.*, concat(m.code, m.name) as `item`, oi.notes FROM `order_items` oi inner join menu_list m on oi.menu_id = m.id where order_id = '{$row['id']}'");
             $item_arr = [];
             while($irow = $items->fetch_assoc()){
                 $item_arr[] = $irow;

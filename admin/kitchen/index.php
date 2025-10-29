@@ -135,6 +135,26 @@
         color: #6c757d;
     }
 
+    .item-notes-badge {
+        display: inline-block;
+        margin-left: 0.5rem;
+        padding: 0.15rem 0.5rem;
+        font-size: 0.75em;
+        background-color: #0066cc;
+        color: white;
+        border-radius: 12px;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+    }
+
+    .item-notes-badge:hover {
+        background-color: #0052a3;
+    }
+
+    .item-notes-badge i {
+        margin-right: 0.25rem;
+    }
+
     .order-checkbox {
         margin-right: 0.6em;
         transform: scale(1.2);
@@ -207,6 +227,33 @@
             </div>
         </div>
     </div>
+</div>
+
+<!-- Item Notes Modal -->
+<div class="modal fade" id="itemNotesModal" tabindex="-1" role="dialog" aria-labelledby="itemNotesModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header bg-info text-white">
+        <h5 class="modal-title" id="itemNotesModalLabel">
+          <i class="fa fa-sticky-note mr-2"></i>Special Instructions
+        </h5>
+        <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-info mb-3">
+          <strong>Item:</strong> <span id="modalItemName"></span>
+        </div>
+        <div class="p-3 bg-light rounded border-left border-info" style="border-left-width: 4px !important;">
+          <p class="mb-0" id="modalNotesContent" style="font-size: 1.1rem; color: #333;"></p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <noscript id="order-clone">
@@ -286,11 +333,20 @@
                     Object.keys(data.item_arr).map(i => {
     var item = data.item_arr[i];
     
+    // Create notes badge if notes exist
+    var notesBadge = '';
+    if (item.notes && item.notes.trim() !== '') {
+        notesBadge = `<span class="item-notes-badge" data-notes="${item.notes.replace(/"/g, '&quot;')}" data-item="${item.item.replace(/"/g, '&quot;')}">
+            <i class="fa fa-sticky-note"></i>Notes
+        </span>`;
+    }
+    
     var row = $(`
         <div class="d-flex w-100">
             <div class="col-9 m-0">
                 <input type="checkbox" class="order-checkbox">
                 <span class="item-name">${item.item}</span>
+                ${notesBadge}
             </div>
             <div class="col-3 m-0 text-center">
                 ${parseInt(item.quantity).toLocaleString()}
@@ -309,10 +365,18 @@
         itemList.push(item.item);
     }
 
-    card.find('.order-body').append(row);
+                    card.find('.order-body').append(row);
 });
 
-                    $('#order-field').append(card)
+                    // Add click handler for notes badges
+                    card.find('.item-notes-badge').click(function() {
+                        var itemName = $(this).data('item');
+                        var notes = $(this).data('notes');
+                        
+                        $('#itemNotesModal').find('#modalItemName').text(itemName);
+                        $('#itemNotesModal').find('#modalNotesContent').text(notes);
+                        $('#itemNotesModal').modal('show');
+                    });                    $('#order-field').append(card)
 
                     card.find('.order-served').click(function () {
                         let itemList = []
