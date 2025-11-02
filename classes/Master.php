@@ -491,6 +491,192 @@ Class Master extends DBConnection {
         return json_encode($resp);
     }
 
+    function refund_order(){
+        extract($_POST);
+        $resp = ['status' => 'failed'];
+        
+        // Validate required fields
+        if(empty($order_id)){
+            $resp['msg'] = 'Order ID is required.';
+            return json_encode($resp);
+        }
+        
+        // Fetch order details
+        $order = $this->conn->query("SELECT * FROM `order_list` WHERE id = '{$order_id}'")->fetch_assoc();
+        
+        if(!$order){
+            $resp['msg'] = 'Order not found.';
+            return json_encode($resp);
+        }
+        
+        // Only paid orders can be refunded (status = 2) or Paid with Refunded Items (status = 5)
+        if(!in_array((int)$order['status'], [2,5])){
+            $resp['msg'] = 'Only paid orders can be refunded.';
+            return json_encode($resp);
+        }
+        
+        // Check if this is item-level or full order refund
+        $refund_items = isset($refund_items) ? json_decode($refund_items, true) : [];
+        $is_item_refund = !empty($refund_items);
+        
+        // Get current user ID
+        $user_id = $this->settings->userdata('id');
+        
+        // Escape reason
+        $reason = !empty($refund_reason) ? $this->conn->real_escape_string($refund_reason) : '';
+        
+        // Begin transaction
+        $this->conn->begin_transaction();
+        
+        try {
+            $total_refund_amount = 0;
+            $refunded_item_count = 0;
+            
+            if($is_item_refund){
+                // Item-level refund
+                foreach($refund_items as $item_id){
+                    // Get item details
+                    $item = $this->conn->query("SELECT * FROM `order_items` WHERE id = '{$item_id}' AND order_id = '{$order_id}'")->fetch_assoc();
+                    
+                    if(!$item){
+                        throw new Exception("Item ID {$item_id} not found in this order.");
+                    }
+                    
+                    if($item['refunded'] == 1){
+                        throw new Exception("Item has already been refunded.");
+                    }
+                    
+                    $item_total = floatval($item['price']) * intval($item['quantity']);
+                    $total_refund_amount += $item_total;
+                    $refunded_item_count++;
+                    
+                    // Insert refund record for this item
+                    $insert_refund = $this->conn->query("INSERT INTO `refunds` 
+                        (`order_id`, `item_id`, `amount`, `reason`, `user_id`, `date_created`) 
+                        VALUES ('{$order_id}', '{$item_id}', '{$item_total}', '{$reason}', '{$user_id}', CURRENT_TIMESTAMP())");
+                    
+                    if(!$insert_refund){
+                        throw new Exception($this->conn->error);
+                    }
+                    
+                    // Mark item as refunded
+                    $update_item = $this->conn->query("UPDATE `order_items` SET `refunded` = 1 WHERE id = '{$item_id}'");
+                    
+                    if(!$update_item){
+                        throw new Exception($this->conn->error);
+                    }
+                }
+                
+                // Check if all items are now refunded
+                $remaining_items = $this->conn->query("SELECT COUNT(*) as count FROM `order_items` WHERE order_id = '{$order_id}' AND refunded = 0")->fetch_assoc();
+                
+                if($remaining_items['count'] == 0){
+                    // All items refunded, mark entire order as refunded
+                    $update_order = $this->conn->query("UPDATE `order_list` 
+                        SET `status` = 4, `date_updated` = CURRENT_TIMESTAMP() 
+                        WHERE id = '{$order_id}'");
+                } else {
+                    // Partial refund, mark order as 'Paid with Refunded Items' (status = 5)
+                    $update_order = $this->conn->query("UPDATE `order_list` 
+                        SET `status` = 5, `date_updated` = CURRENT_TIMESTAMP() 
+                        WHERE id = '{$order_id}'");
+                }
+                
+                if(!$update_order){
+                    throw new Exception($this->conn->error);
+                }
+                
+            } else {
+                // Full order refund (legacy support)
+                $refund_amount = !empty($amount) ? floatval($amount) : floatval($order['total_amount']);
+                
+                // Validate refund amount
+                if($refund_amount <= 0){
+                    throw new Exception('Invalid refund amount.');
+                }
+                
+                if($refund_amount > floatval($order['total_amount'])){
+                    throw new Exception('Refund amount cannot exceed order total.');
+                }
+                
+                $total_refund_amount = $refund_amount;
+                
+                // Insert refund record (item_id is NULL for full order refund)
+                $insert_refund = $this->conn->query("INSERT INTO `refunds` 
+                    (`order_id`, `item_id`, `amount`, `reason`, `user_id`, `date_created`) 
+                    VALUES ('{$order_id}', NULL, '{$refund_amount}', '{$reason}', '{$user_id}', CURRENT_TIMESTAMP())");
+                
+                if(!$insert_refund){
+                    throw new Exception($this->conn->error);
+                }
+                
+                // Update order status to Refunded (4)
+                $update_order = $this->conn->query("UPDATE `order_list` 
+                    SET `status` = 4, `date_updated` = CURRENT_TIMESTAMP() 
+                    WHERE id = '{$order_id}'");
+                
+                if(!$update_order){
+                    throw new Exception($this->conn->error);
+                }
+                
+                // Mark all items as refunded
+                $update_items = $this->conn->query("UPDATE `order_items` SET `refunded` = 1 WHERE order_id = '{$order_id}'");
+                
+                if(!$update_items){
+                    throw new Exception($this->conn->error);
+                }
+            }
+            
+            // Commit transaction
+            $this->conn->commit();
+            
+            $resp['status'] = 'success';
+            $resp['msg'] = $is_item_refund ? 
+                "Successfully refunded {$refunded_item_count} item(s)." : 
+                'Order refunded successfully.';
+            $resp['refund_amount'] = number_format($total_refund_amount, 2);
+            $resp['is_item_refund'] = $is_item_refund;
+            $resp['refunded_count'] = $refunded_item_count;
+            
+        } catch (Exception $e) {
+            // Rollback on error
+            $this->conn->rollback();
+            $resp['status'] = 'failed';
+            $resp['msg'] = 'Refund failed: ' . $e->getMessage();
+        }
+        
+        return json_encode($resp);
+    }
+
+    function get_order_items_for_refund(){
+        extract($_POST);
+        $resp = ['status' => 'failed'];
+        
+        if(empty($order_id)){
+            $resp['msg'] = 'Order ID is required.';
+            return json_encode($resp);
+        }
+        
+        $items = $this->conn->query("SELECT oi.*, CONCAT(m.code, ' ', m.name) as item_name 
+            FROM `order_items` oi 
+            INNER JOIN `menu_list` m ON oi.menu_id = m.id 
+            WHERE oi.order_id = '{$order_id}' 
+            ORDER BY oi.id ASC");
+        
+        if($items && $items->num_rows > 0){
+            $item_list = [];
+            while($row = $items->fetch_assoc()){
+                $item_list[] = $row;
+            }
+            $resp['status'] = 'success';
+            $resp['items'] = $item_list;
+        } else {
+            $resp['msg'] = 'No items found for this order.';
+        }
+        
+        return json_encode($resp);
+    }
+
     
 function save_table(){
     extract($_POST);
@@ -611,6 +797,12 @@ switch ($action) {
         break;
     case 'serve_one_order':
         echo $Master->serve_one_order();
+        break;
+    case 'refund_order':
+        echo $Master->refund_order();
+        break;
+    case 'get_order_items_for_refund':
+        echo $Master->get_order_items_for_refund();
         break;
     case 'save_table':
         echo $Master->save_table();

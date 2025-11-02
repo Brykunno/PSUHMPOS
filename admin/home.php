@@ -184,19 +184,46 @@
       <span class="info-box-text">Total Sales Today</span>
       <span class="info-box-number text-right h5">
         <?php 
-          // Construct the SQL query to calculate total sales today
-          $query = "SELECT COALESCE(SUM(total_amount), 0) FROM order_list WHERE date(date_created) = '".date('Y-m-d')."'";
+          // Calculate total sales today excluding refunded items
+          $today = date('Y-m-d');
+          $user_filter = ($_settings->userdata('type') == 2) ? " AND ol.user_id = '{$_settings->userdata('id')}'" : "";
           
-          // If user type is 2 (cashier), filter the orders by the user ID
-          if($_settings->userdata('type') == 2) {
-            $query .= " AND user_id = '{$_settings->userdata('id')}'";
-          }
+          $sales_query = "SELECT COALESCE(SUM(
+              (SELECT IFNULL(SUM(oi.quantity * oi.price), 0)
+               FROM order_items oi 
+               WHERE oi.order_id = ol.id AND oi.refunded = 0)
+          ), 0) as total_sales
+          FROM order_list ol
+          WHERE DATE(ol.date_created) = '{$today}'
+            AND ol.status IN (2,5)
+            {$user_filter}";
+          
+          $sales_result = $conn->query($sales_query)->fetch_array()[0];
+          echo "₱ " . format_num($sales_result, 2);
+        ?>
+      </span>
+    </div>
+  </a>
+</div>
 
-          // Execute the query and fetch the total sales
-          $orders = $conn->query($query)->fetch_array()[0];
+<div class="col-md-4">
+  <a href="./?page=reports/refunds" class="info-box" style="background-color: #dc3545;">
+    <span class="info-box-icon"><i class="fas fa-undo"></i></span>
+    <div class="info-box-content">
+      <span class="info-box-text">Total Refunds Today</span>
+      <span class="info-box-number text-right h5">
+        <?php 
+          // Calculate total refunds today
+          $today = date('Y-m-d');
+          $user_filter_refund = ($_settings->userdata('type') == 2) ? " AND r.user_id = '{$_settings->userdata('id')}'" : "";
           
-          // Output the total sales with the peso sign and formatted number
-          echo "₱ " . format_num($orders, 2);
+          $refunds_query = "SELECT COALESCE(SUM(r.amount), 0) as total_refunds
+          FROM refunds r
+          WHERE DATE(r.date_created) = '{$today}'
+            {$user_filter_refund}";
+          
+          $refunds_result = $conn->query($refunds_query)->fetch_array()[0];
+          echo "₱ " . format_num($refunds_result, 2);
         ?>
       </span>
     </div>
@@ -229,7 +256,15 @@
       $date_labels = [];
       for ($i = 6; $i >= 0; $i--) {
         $date = date('Y-m-d', strtotime("-$i days"));
-        $query = "SELECT COALESCE(SUM(total_amount), 0) FROM order_list WHERE date(date_created) = '$date'";
+        // Calculate sales excluding refunded items
+        $query = "SELECT COALESCE(SUM(
+            (SELECT IFNULL(SUM(oi.quantity * oi.price), 0)
+             FROM order_items oi 
+             WHERE oi.order_id = ol.id AND oi.refunded = 0)
+        ), 0) as total_sales
+        FROM order_list ol
+        WHERE DATE(ol.date_created) = '{$date}'
+          AND ol.status IN (2,5)";
         $sales = $conn->query($query)->fetch_array()[0];
         $date_labels[] = date('M d', strtotime($date));
         $sales_data[] = $sales;
@@ -237,11 +272,14 @@
 
       $top_sold_food = [];
       $food_labels = [];
-      $food_query = "SELECT menu_id, SUM(quantity) AS total_quantity 
-                    FROM order_items 
-                    JOIN order_list ON order_items.order_id = order_list.id 
-                    WHERE order_list.date_created > NOW() - INTERVAL 30 DAY 
-                    GROUP BY menu_id 
+      // Exclude refunded items from top sold food calculation
+      $food_query = "SELECT oi.menu_id, SUM(oi.quantity) AS total_quantity 
+                    FROM order_items oi
+                    JOIN order_list ol ON oi.order_id = ol.id 
+                    WHERE ol.date_created > NOW() - INTERVAL 30 DAY 
+                      AND oi.refunded = 0
+                      AND ol.status IN (2,5)
+                    GROUP BY oi.menu_id 
                     ORDER BY total_quantity DESC 
                     LIMIT 5";
       $food_result = $conn->query($food_query);

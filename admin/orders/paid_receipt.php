@@ -72,6 +72,36 @@ if (!$is_vat_exempt) {
     }
 }
 $net_total = $total_amount - $vat_amount;
+
+// Compute refunded vs non-refunded items to reflect accurate totals on receipt
+$display_subtotal = 0; // Sum of non-refunded items only
+$refunded_subtotal = 0; // Sum of refunded items (for info/badges)
+$all_items = [];
+if (isset($_GET['id'])) {
+  $oid = $_GET['id'];
+  $itQry = $conn->query("SELECT oi.*, m.name FROM `order_items` oi INNER JOIN `menu_list` m ON oi.menu_id = m.id WHERE oi.order_id = '{$oid}'");
+  while($r = $itQry->fetch_assoc()){
+    $r['line_total'] = (float)$r['price'] * (int)$r['quantity'];
+    if ((int)$r['refunded'] === 1) {
+      $refunded_subtotal += $r['line_total'];
+    } else {
+      $display_subtotal += $r['line_total'];
+    }
+    $all_items[] = $r;
+  }
+}
+
+// Recalculate VAT and discounts based on non-refunded subtotal
+$receipt_vat_amount = 0;
+if (!$is_vat_exempt) {
+  $receipt_vat_amount = $display_subtotal ? ($display_subtotal * $vat_rate) : 0;
+}
+$receipt_discount_amount = 0;
+if (!empty($discount_percent) && $discount_percent > 0) {
+  $receipt_discount_amount = $display_subtotal * ($discount_percent / 100);
+}
+$receipt_grand_total = ($display_subtotal - $receipt_discount_amount) + $receipt_vat_amount;
+$is_full_refund = ($display_subtotal <= 0 && count($all_items) > 0);
 ?>
 
 <!DOCTYPE html>
@@ -146,50 +176,60 @@ hr {
   <hr>
 
   <div class="bold text-center">SALES INVOICE</div>
+  <?php if ($is_full_refund): ?>
+    <div class="text-center" style="color:#dc3545; font-weight:bold; margin:4px 0;">FULL ORDER REFUND</div>
+  <?php endif; ?>
   <div style="display:flex; font-weight: bold;">
     <div style="width: 40%;">Item</div>
     <div style="width: 20%; text-align: right;">Price</div>
     <div style="width: 10%; text-align: center;">Qty</div>
     <div style="width: 30%; text-align: right;">Amount</div>
   </div>
-
-  <?php 
-    if (isset($_GET['id'])):
-      $id = $_GET['id'];
-      $items = $conn->query("SELECT oi.*, m.name FROM `order_items` oi INNER JOIN `menu_list` m ON oi.menu_id = m.id WHERE oi.order_id = '{$id}'");
-      while ($row = $items->fetch_assoc()):
-  ?>
-  <div style="display:flex;">
-    <div style="width: 40%;"><?= $row['name'] ?></div>
-    <div style="width: 20%; text-align: right;"><?= format_num($row['price'], 0) ?></div>
-    <div style="width: 10%; text-align: center;"><?= $row['quantity'] ?></div>
-    <div style="width: 30%; text-align: right;"><?= format_num($row['price'] * $row['quantity'], 0) ?></div>
-  </div>
-  <?php endwhile; endif; ?>
+  <?php if (!empty($all_items)): ?>
+    <?php foreach($all_items as $row): ?>
+      <?php 
+        $isRefunded = isset($row['refunded']) && (int)$row['refunded'] === 1; 
+        $lineTotal = isset($row['line_total']) ? $row['line_total'] : ((float)$row['price'] * (int)$row['quantity']);
+      ?>
+      <div style="display:flex; <?= $isRefunded ? 'color:#dc3545; text-decoration: line-through;' : '' ?>">
+        <div style="width: 40%;">
+          <?= htmlspecialchars($row['name']) ?>
+          <?php if ($isRefunded): ?>
+            <span style="font-size:10px; font-weight:bold; margin-left:4px;">[REFUNDED]</span>
+          <?php endif; ?>
+        </div>
+        <div style="width: 20%; text-align: right;"><?= format_num($row['price'], 2) ?></div>
+        <div style="width: 10%; text-align: center;"><?= (int)$row['quantity'] ?></div>
+        <div style="width: 30%; text-align: right;"><?= format_num($lineTotal, 2) ?></div>
+      </div>
+    <?php endforeach; ?>
+  <?php endif; ?>
 
   <hr>
-  <div style="display:flex;"><div style="width: 70%;">SUBTOTAL:</div><div style="width:30%; text-align:right;"><?= format_num($total_amount, 2) ?></div></div>
-  <div style="display:flex;"><div style="width: 70%;">12% VAT:</div><div style="width:30%; text-align:right;"><?= format_num($vat_amount, 2) ?></div></div>
+  <div style="display:flex;"><div style="width: 70%">SUBTOTAL:</div><div style="width:30%; text-align:right;"><?= format_num($display_subtotal, 2) ?></div></div>
+  <div style="display:flex;"><div style="width: 70%">12% VAT:</div><div style="width:30%; text-align:right;"><?= format_num($receipt_vat_amount, 2) ?></div></div>
   <?php if (!empty($discount_code)): ?>
   <div style="display:flex;"><div style="width: 70%;">Discount Code (<?= $discount_type ?>):</div><div style="width:30%; text-align:right;"><?= $discount_code ?></div></div>
   <?php endif; ?>
-  <div style="display:flex;"><div style="width: 70%;">Discount (<?= $discount_percent ?>%):</div><div style="width:30%; text-align:right;"><?= $discount_percent == 0? 0: format_num($discount_amount, 2) ?></div></div>
-  <div style="display:flex;"><div style="width: 70%; font-weight:bold;">TOTAL:</div><div style="width:30%; text-align:right; font-weight:bold;"><?= format_num($grand_total, 2) ?></div></div>
+  <div style="display:flex;"><div style="width: 70%">Discount (<?= $discount_percent ?>%):</div><div style="width:30%; text-align:right; "><?= $discount_percent == 0? 0: format_num($receipt_discount_amount, 2) ?></div></div>
+  <div style="display:flex;"><div style="width: 70%; font-weight:bold;">TOTAL:</div><div style="width:30%; text-align:right; font-weight:bold; "><?= format_num($receipt_grand_total, 2) ?></div></div>
   <?php if($payment_method == 'cash'): ?>
-    <div style="display:flex;"><div style="width: 70%;">CASH:</div><div style="width:30%; text-align:right;"><?= format_num($cash, 2) ?></div></div>
-    <div style="display:flex;"><div style="width: 70%;">CHANGE:</div><div style="width:30%; text-align:right;"><?= format_num($change, 2) ?></div></div>
+    <?php $display_change = max(0, $cash - $receipt_grand_total); ?>
+    <div style="display:flex;"><div style="width: 70%">CASH:</div><div style="width:30%; text-align:right; "><?= format_num($cash, 2) ?></div></div>
+    <div style="display:flex;"><div style="width: 70%">CHANGE:</div><div style="width:30%; text-align:right; "><?= format_num($display_change, 2) ?></div></div>
   <?php elseif($payment_method == 'emoney'): ?>
     <div style="display:flex;"><div style="width: 70%;">E-Money Ref:</div><div style="width:30%; text-align:right;"><?= htmlspecialchars($emoney_reference) ?></div></div>
-    <div style="display:flex;"><div style="width: 70%;">AMOUNT PAID:</div><div style="width:30%; text-align:right;"><?= format_num($grand_total, 2) ?></div></div>
+    <div style="display:flex;"><div style="width: 70%">AMOUNT PAID:</div><div style="width:30%; text-align:right; "><?= format_num($receipt_grand_total, 2) ?></div></div>
   <?php elseif($payment_method == 'credit_card'): ?>
     <div style="display:flex;"><div style="width: 70%;">Card Number:</div><div style="width:30%; text-align:right;"><?= $card_number ? '**** **** **** ' . substr($card_number, -4) : '' ?></div></div>
-    <div style="display:flex;"><div style="width: 70%;">AMOUNT PAID:</div><div style="width:30%; text-align:right;"><?= format_num($grand_total, 2) ?></div></div>
+    <div style="display:flex;"><div style="width: 70%">AMOUNT PAID:</div><div style="width:30%; text-align:right; "><?= format_num($receipt_grand_total, 2) ?></div></div>
   <?php endif; ?>
   <hr>
 
+  <?php $receipt_net_total = $display_subtotal - $receipt_vat_amount; ?>
   <div>
-    VATable Sales: <?= format_num($net_total, 2) ?><br>
-    VAT Amount: <?= format_num($vat_amount, 2) ?><br>
+    VATable Sales: <?= format_num($receipt_net_total, 2) ?><br>
+    VAT Amount: <?= format_num($receipt_vat_amount, 2) ?><br>
     VAT-Exempt Sales: 0.00<br>
     Zero-Rated Sales: 0.00
   </div>

@@ -182,8 +182,14 @@ while ($row = $qry->fetch_assoc()):
             case 2:
                 echo '<span class="badge badge-success">Paid</span>';
                 break;
+      case 5:
+        echo '<span class="badge badge-success">Paid (Refunded Items)</span>';
+        break;
             case 3:
                 echo '<span class="badge badge-info">Billed Out</span>';
+                break;
+            case 4:
+                echo '<span class="badge badge-danger">Refunded</span>';
                 break;
             default:
                 echo '<span class="badge badge-light">N/A</span>';
@@ -193,15 +199,20 @@ while ($row = $qry->fetch_assoc()):
     </td>
     <td class="text-center">
         <div class="btn-group btn-group-sm">
-            <?php if($row['status'] == 2): // Paid ?>
+      <?php if($row['status'] == 2 || $row['status'] == 5): // Paid or Paid with Refunded Items ?>
                 <!-- Print Receipt Button -->
                 <a class="btn btn-light bg-gradient-light border view_receipt" href="javascript:void(0)" data-id="<?php echo $order_id ?>" title="Print Receipt">
                     <i class="fa fa-print text-success"></i>
                 </a>
-                <!-- Delete Button -->
-                <!-- <a class="btn btn-danger bg-gradient-danger delete_data" href="javascript:void(0)" data-id="<?php echo $order_id ?>" title="Delete Order">
-                    <i class="fa fa-trash"></i>
-                </a> -->
+                <!-- Refund Button -->
+                <a class="btn btn-light bg-gradient-light border refund_order" href="javascript:void(0)" data-id="<?php echo $order_id ?>" data-total="<?php echo $row['total_amount'] ?>" title="Refund Order">
+                    <i class="fa fa-undo text-danger"></i>
+                </a>
+            <?php elseif($row['status'] == 4): // Refunded ?>
+                <!-- View Receipt for Refunded Orders -->
+                <a class="btn btn-light bg-gradient-light border view_receipt" href="javascript:void(0)" data-id="<?php echo $order_id ?>" title="View Receipt">
+                    <i class="fa fa-eye text-info"></i>
+                </a>
             <?php else: ?>
                 <!-- Edit Order Button -->
        
@@ -558,6 +569,133 @@ while ($row = $qry->fetch_assoc()):
   </div>
 </div>
 
+<!-- Refund Modal -->
+<div class="modal fade" id="refundModal" tabindex="-1" role="dialog" aria-labelledby="refundModalLabel" aria-hidden="true" data-backdrop="static" data-keyboard="false">
+  <div class="modal-dialog modal-md modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title" id="refundModalLabel">
+          <i class="fa fa-undo mr-2"></i>Refund Order
+        </h5>
+        <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      
+      <div class="modal-body">
+        <input type="hidden" id="refund_order_id" name="order_id">
+        <input type="hidden" id="refund_order_total" name="order_total">
+        
+        <!-- Step 1: Admin Authorization (shown first) -->
+        <div id="adminAuthSection">
+          <div class="alert alert-warning">
+            <i class="fa fa-exclamation-triangle mr-2"></i>
+            <strong>Admin Authorization Required</strong><br>
+            Please enter admin credentials to proceed with the refund.
+          </div>
+          
+          <form id="adminAuthFormRefund">
+            <div class="form-group">
+              <label for="refund_admin_username">
+                <i class="fa fa-user mr-1"></i>Admin Username:
+              </label>
+              <input type="text" class="form-control" id="refund_admin_username" name="admin_username" required autocomplete="off">
+            </div>
+            
+            <div class="form-group">
+              <label for="refund_admin_password">
+                <i class="fa fa-lock mr-1"></i>Admin Password:
+              </label>
+              <div class="input-group">
+                <input type="password" class="form-control" id="refund_admin_password" name="admin_password" required autocomplete="off">
+                <div class="input-group-append">
+                  <button class="btn btn-outline-secondary" type="button" id="toggleRefundPassword">
+                    <i class="fa fa-eye"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            <div id="refundAuthError" class="alert alert-danger d-none">
+              <i class="fa fa-times-circle mr-2"></i>
+              <span id="refundAuthErrorMessage"></span>
+            </div>
+            
+            <button type="submit" class="btn btn-primary btn-block" id="verifyAdminBtn">
+              <i class="fa fa-check mr-1"></i>Verify & Continue
+            </button>
+          </form>
+        </div>
+        
+        <!-- Step 2: Item Selection (shown after admin verification) -->
+        <div id="itemSelectionSection" class="d-none">
+          <div class="alert alert-success">
+            <i class="fa fa-check-circle mr-2"></i>
+            <strong>Admin Verified!</strong> Select items to refund.
+          </div>
+          
+          <div class="card mb-3">
+            <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+              <span><i class="fa fa-list mr-2"></i>Order Items</span>
+              <button type="button" class="btn btn-sm btn-light" id="selectAllItems">
+                <i class="fa fa-check-square mr-1"></i>Select All
+              </button>
+            </div>
+            <div class="card-body p-0">
+              <div id="refundItemsList" style="max-height: 300px; overflow-y: auto;">
+                <!-- Items will be loaded here dynamically -->
+              </div>
+            </div>
+          </div>
+          
+          <div class="alert alert-info">
+            <strong>Selected Items Total:</strong> 
+            <span class="float-right font-weight-bold"><span id="selected_items_total">0.00</span></span>
+          </div>
+          
+          <div class="d-flex justify-content-between">
+            <button type="button" class="btn btn-secondary" id="backToAuthBtn">
+              <i class="fa fa-arrow-left mr-1"></i>Back
+            </button>
+            <button type="button" class="btn btn-primary" id="continueToReasonBtn" disabled>
+              <i class="fa fa-arrow-right mr-1"></i>Continue
+            </button>
+          </div>
+        </div>
+        
+        <!-- Step 3: Refund Reason (shown after item selection) -->
+        <div id="refundReasonSection" class="d-none">
+          <div class="alert alert-info">
+            <i class="fa fa-info-circle mr-2"></i>
+            <strong>Refunding <span id="refund_item_count">0</span> item(s)</strong> - Total: <span id="refund_display_amount">0.00</span>
+          </div>
+          
+          <form id="refundForm">
+            <div class="form-group">
+              <label for="refund_reason">
+                <i class="fa fa-comment mr-1"></i>Reason for Refund: <span class="text-danger">*</span>
+              </label>
+              <textarea class="form-control" id="refund_reason" name="refund_reason" rows="4" placeholder="Enter the reason for this refund (e.g., customer complaint, wrong order, food quality issue)" required></textarea>
+              <small class="form-text text-muted">
+                A clear reason is required for audit purposes.
+              </small>
+            </div>
+            
+            <div class="d-flex justify-content-between">
+              <button type="button" class="btn btn-secondary" id="backToItemsBtn">
+                <i class="fa fa-arrow-left mr-1"></i>Back to Items
+              </button>
+              <button type="submit" class="btn btn-danger" id="confirmRefundBtn">
+                <i class="fa fa-undo mr-1"></i>Process Refund
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 
   function isValidCardNumber(cardNumber) {
@@ -584,6 +722,327 @@ while ($row = $qry->fetch_assoc()):
 		let orderToDelete = null;
 		let itemToDelete = null;
 		let deleteType = 'order'; // 'order' or 'item'
+		
+		// Handle refund order click
+		$('.refund_order').click(function(){
+			var order_id = $(this).attr('data-id');
+			
+			// Populate modal
+			$('#refund_order_id').val(order_id);
+			
+			// Reset to step 1 (admin auth)
+			$('#adminAuthSection').removeClass('d-none');
+      $('#itemSelectionSection').addClass('d-none');
+      $('#refundReasonSection').addClass('d-none');
+			$('#adminAuthFormRefund')[0].reset();
+			$('#refundAuthError').addClass('d-none');
+			
+			// Show modal
+			$('#refundModal').modal('show');
+		});
+		
+		// Handle admin auth form submission (Step 1)
+		$('#adminAuthFormRefund').submit(function(e){
+			e.preventDefault();
+			
+			let admin_username = $('#refund_admin_username').val().trim();
+			let admin_password = $('#refund_admin_password').val();
+			
+			if(!admin_username || !admin_password) {
+				showRefundAuthError('Please enter both username and password');
+				return;
+			}
+			
+			// Disable button
+			$('#verifyAdminBtn').prop('disabled', true).html('<i class="fa fa-spinner fa-spin mr-1"></i>Verifying...');
+			
+			// Verify admin credentials
+			$.ajax({
+				url: 'orders/verify_admin.php',
+				method: 'POST',
+				data: {
+					username: admin_username,
+					password: admin_password
+				},
+				dataType: 'json',
+				success: function(resp) {
+					if(resp.status === 'success') {
+            // Admin verified, load items for selection
+						$('#adminAuthSection').addClass('d-none');
+						$('#refundAuthError').addClass('d-none');
+            loadRefundItems($('#refund_order_id').val());
+					} else {
+						showRefundAuthError(resp.message || 'Invalid admin credentials');
+						$('#verifyAdminBtn').prop('disabled', false).html('<i class="fa fa-check mr-1"></i>Verify & Continue');
+					}
+				},
+				error: function(xhr) {
+					console.error('Admin verification error:', xhr);
+					showRefundAuthError('Server error occurred. Please try again.');
+					$('#verifyAdminBtn').prop('disabled', false).html('<i class="fa fa-check mr-1"></i>Verify & Continue');
+				}
+			});
+		});
+		
+    // Function to load order items for refund selection
+    function loadRefundItems(order_id) {
+      $.ajax({
+        url: _base_url_ + 'classes/Master.php?f=get_order_items_for_refund',
+        method: 'POST',
+        data: { order_id: order_id },
+        dataType: 'json',
+        success: function(resp) {
+          if(resp.status === 'success' && resp.items && resp.items.length > 0) {
+            renderRefundItems(resp.items);
+            $('#itemSelectionSection').removeClass('d-none');
+          } else {
+            alert_toast('No items found for this order', 'error');
+            $('#refundModal').modal('hide');
+          }
+        },
+        error: function(xhr) {
+          console.error('Error loading items:', xhr);
+          alert_toast('Failed to load order items', 'error');
+          $('#refundModal').modal('hide');
+        }
+      });
+    }
+		
+    // Function to render refund items as checkboxes
+    function renderRefundItems(items) {
+      let html = '';
+      let hasRefundableItems = false;
+			
+      items.forEach(function(item) {
+        let itemTotal = parseFloat(item.price) * parseInt(item.quantity);
+        let isRefunded = parseInt(item.refunded) === 1;
+        let checkboxDisabled = isRefunded ? 'disabled' : '';
+        let rowClass = isRefunded ? 'text-muted' : '';
+        let refundBadge = isRefunded ? '<span class="badge badge-danger ml-2">Already Refunded</span>' : '';
+				
+        if (!isRefunded) {
+          hasRefundableItems = true;
+        }
+				
+        html += `
+          <div class="custom-control custom-checkbox mb-2 ${rowClass}">
+            <input type="checkbox" 
+              class="custom-control-input refund-item-checkbox" 
+              id="refund_item_${item.id}" 
+              data-item-id="${item.id}"
+              data-price="${item.price}"
+              data-quantity="${item.quantity}"
+              data-amount="${itemTotal.toFixed(2)}"
+              ${checkboxDisabled}>
+            <label class="custom-control-label" for="refund_item_${item.id}">
+              <strong>${item.item_name}</strong><br>
+              <small>Qty: ${item.quantity} × ₱${parseFloat(item.price).toFixed(2)} = ₱${itemTotal.toFixed(2)}</small>
+              ${refundBadge}
+            </label>
+          </div>
+        `;
+      });
+			
+      if (!hasRefundableItems) {
+        html = '<div class="alert alert-info">All items in this order have already been refunded.</div>';
+        $('#selectAllItems').prop('disabled', true);
+        $('#continueToReasonBtn').prop('disabled', true);
+      } else {
+        $('#selectAllItems').prop('disabled', false);
+      }
+			
+      $('#refundItemsList').html(html);
+      updateSelectedTotal();
+    }
+		
+    // Handle "Select All" button
+    $('#selectAllItems').click(function() {
+      let allChecked = $('.refund-item-checkbox:not(:disabled):checked').length === $('.refund-item-checkbox:not(:disabled)').length;
+			
+      if (allChecked) {
+        // Deselect all
+        $('.refund-item-checkbox:not(:disabled)').prop('checked', false);
+        $(this).html('<i class="fa fa-check-square mr-1"></i>Select All');
+      } else {
+        // Select all
+        $('.refund-item-checkbox:not(:disabled)').prop('checked', true);
+        $(this).html('<i class="fa fa-square mr-1"></i>Deselect All');
+      }
+			
+      updateSelectedTotal();
+    });
+		
+    // Handle individual checkbox changes
+    $(document).on('change', '.refund-item-checkbox', function() {
+      updateSelectedTotal();
+			
+      // Update "Select All" button text
+      let allChecked = $('.refund-item-checkbox:not(:disabled):checked').length === $('.refund-item-checkbox:not(:disabled)').length;
+      if (allChecked && $('.refund-item-checkbox:not(:disabled)').length > 0) {
+        $('#selectAllItems').html('<i class="fa fa-square mr-1"></i>Deselect All');
+      } else {
+        $('#selectAllItems').html('<i class="fa fa-check-square mr-1"></i>Select All');
+      }
+    });
+		
+    // Function to update selected items total
+    function updateSelectedTotal() {
+      let total = 0;
+      let count = 0;
+			
+      $('.refund-item-checkbox:checked').each(function() {
+        total += parseFloat($(this).data('amount'));
+        count++;
+      });
+			
+      $('#selected_items_total').text('₱' + total.toFixed(2));
+			
+      // Enable/disable continue button based on selection
+      if (count > 0) {
+        $('#continueToReasonBtn').prop('disabled', false);
+      } else {
+        $('#continueToReasonBtn').prop('disabled', true);
+      }
+    }
+		
+    // Handle "Continue to Refund" button (Step 2 → Step 3)
+    $('#continueToReasonBtn').click(function() {
+      let selectedCount = $('.refund-item-checkbox:checked').length;
+      let totalAmount = 0;
+			
+      $('.refund-item-checkbox:checked').each(function() {
+        totalAmount += parseFloat($(this).data('amount'));
+      });
+			
+      // Update summary in step 3
+      $('#refund_item_count').text(selectedCount);
+      $('#refund_display_amount').text('₱' + totalAmount.toFixed(2));
+			
+      // Show step 3
+      $('#itemSelectionSection').addClass('d-none');
+      $('#refundReasonSection').removeClass('d-none');
+      $('#refund_reason').focus();
+    });
+		
+    // Handle "Back to Item Selection" button (Step 3 → Step 2)
+    $('#backToItemsBtn').click(function() {
+      $('#refundReasonSection').addClass('d-none');
+      $('#itemSelectionSection').removeClass('d-none');
+    });
+		
+		// Toggle refund password visibility
+		$('#toggleRefundPassword').click(function() {
+			let passwordField = $('#refund_admin_password');
+			let icon = $(this).find('i');
+			
+			if (passwordField.attr('type') === 'password') {
+				passwordField.attr('type', 'text');
+				icon.removeClass('fa-eye').addClass('fa-eye-slash');
+			} else {
+				passwordField.attr('type', 'password');
+				icon.removeClass('fa-eye-slash').addClass('fa-eye');
+			}
+		});
+		
+    // Handle refund form submission (Step 3)
+		$('#refundForm').submit(function(e){
+			e.preventDefault();
+			
+			let order_id = $('#refund_order_id').val();
+			let refund_reason = $('#refund_reason').val().trim();
+			
+			// Validation
+			if(!refund_reason) {
+				alert_toast('Please provide a reason for the refund', 'error');
+				$('#refund_reason').focus();
+				return;
+			}
+			
+      // Collect selected item IDs
+      let selectedItems = [];
+      $('.refund-item-checkbox:checked').each(function() {
+        selectedItems.push($(this).data('item-id'));
+      });
+			
+      if(selectedItems.length === 0) {
+        alert_toast('Please select at least one item to refund', 'error');
+				return;
+			}
+			
+			// Disable submit button
+			$('#confirmRefundBtn').prop('disabled', true).html('<i class="fa fa-spinner fa-spin mr-1"></i>Processing...');
+			
+			// Process refund
+      processRefund(order_id, selectedItems, refund_reason);
+		});
+		
+		// Function to process refund
+    function processRefund(order_id, selectedItems, reason) {
+			$.ajax({
+				url: _base_url_ + 'classes/Master.php?f=refund_order',
+				method: 'POST',
+				data: {
+					order_id: order_id,
+          refund_items: JSON.stringify(selectedItems),
+					refund_reason: reason
+				},
+				dataType: 'json',
+				success: function(resp) {
+					if(resp.status === 'success') {
+						$('#refundModal').modal('hide');
+            let message = 'Refund processed successfully! ';
+            if(resp.is_item_refund) {
+              message += resp.refunded_count + ' item(s) refunded. Amount: ₱' + resp.refund_amount;
+            } else {
+              message += 'Full order refunded. Amount: ₱' + resp.refund_amount;
+            }
+            alert_toast(message, 'success');
+						setTimeout(function() {
+							location.reload();
+						}, 1500);
+					} else {
+						alert_toast(resp.msg || 'Refund failed', 'error');
+						$('#confirmRefundBtn').prop('disabled', false).html('<i class="fa fa-undo mr-1"></i>Process Refund');
+					}
+				},
+				error: function(xhr) {
+					console.error('Refund error:', xhr);
+					alert_toast('Server error: ' + (xhr.responseText || 'Unknown error'), 'error');
+					$('#confirmRefundBtn').prop('disabled', false).html('<i class="fa fa-undo mr-1"></i>Process Refund');
+				}
+			});
+		}
+		
+		// Function to show refund authentication error
+		function showRefundAuthError(message) {
+			$('#refundAuthErrorMessage').text(message);
+			$('#refundAuthError').removeClass('d-none');
+		}
+		
+		// Clear refund modal when hidden
+		$('#refundModal').on('hidden.bs.modal', function() {
+      // Reset all forms
+			$('#adminAuthFormRefund')[0].reset();
+			$('#refundForm')[0].reset();
+			
+      // Reset UI state
+			$('#refundAuthError').addClass('d-none');
+			$('#adminAuthSection').removeClass('d-none');
+      $('#itemSelectionSection').addClass('d-none');
+      $('#refundReasonSection').addClass('d-none');
+			
+      // Reset buttons
+			$('#verifyAdminBtn').prop('disabled', false).html('<i class="fa fa-check mr-1"></i>Verify & Continue');
+			$('#confirmRefundBtn').prop('disabled', false).html('<i class="fa fa-undo mr-1"></i>Process Refund');
+      $('#continueToReasonBtn').prop('disabled', true);
+      $('#selectAllItems').html('<i class="fa fa-check-square mr-1"></i>Select All');
+			
+      // Clear items list and totals
+      $('#refundItemsList').html('');
+      $('#selected_items_total').text('₱0.00');
+      $('#refund_item_count').text('0');
+      $('#refund_display_amount').text('₱0.00');
+		});
 		
 		$('.delete_data').click(function(){
 			orderToDelete = $(this).attr('data-id');
