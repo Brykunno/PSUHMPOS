@@ -3,7 +3,7 @@ $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date("Y-m-d");
 $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : date("Y-m-d");
 ?>
 
-<<style>
+<style>
     .card-header {
         background: linear-gradient(45deg, #5b9bd5, #3c78d8); /* Updated to blue gradient */
         color: white;
@@ -101,13 +101,15 @@ $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : date("Y-m-d");
                     </thead>
                     <tbody>
                         <?php
-                        $query = $conn->query("SELECT m.name, SUM(oi.quantity) as total_qty, SUM(oi.quantity * oi.price) as total_sales
-                            FROM order_items oi
-                            INNER JOIN order_list ol ON oi.order_id = ol.id
-                            INNER JOIN menu_list m ON oi.menu_id = m.id
-                            WHERE date(ol.date_created) BETWEEN '{$start_date}' AND '{$end_date}'
-                            GROUP BY m.id
-                            ORDER BY total_sales DESC");
+                                                $query = $conn->query("SELECT m.name, SUM(oi.quantity) as total_qty, SUM(oi.quantity * oi.price) as total_sales
+                                                        FROM order_items oi
+                                                        INNER JOIN order_list ol ON oi.order_id = ol.id
+                                                        INNER JOIN menu_list m ON oi.menu_id = m.id
+                                                        WHERE date(ol.date_created) BETWEEN '{$start_date}' AND '{$end_date}'
+                                                            AND ol.status IN (2,5)            -- Include Paid and Paid-with-Refunds
+                                                            AND oi.refunded = 0               -- Exclude refunded items entirely
+                                                        GROUP BY m.id
+                                                        ORDER BY total_sales DESC");
 
                         $i = 1;
                         $grand_total = 0;

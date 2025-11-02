@@ -177,6 +177,12 @@
                 <p>Product Sales Report</p>
               </a>
             </li>
+            <li class="nav-item">
+              <a href="./?page=reports/refunds" class="nav-link tree-item nav-refunds_reports">
+                <i class="fas fa-undo nav-icon"></i>
+                <p>Refunds</p>
+              </a>
+            </li>
           </ul>
         </li>
 
@@ -220,6 +226,9 @@
     }
     if (page === 'reports_product') {
       $('.nav-link.nav-product_reports').addClass('active');
+    }
+    if (page === 'reports_refunds') {
+      $('.nav-link.nav-refunds_reports').addClass('active');
     }
 
     $('.main-sidebar .nav-link').each(function () {

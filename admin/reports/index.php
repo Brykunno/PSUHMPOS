@@ -102,6 +102,16 @@ function format_peso($amount) {
     </div>
 
     <div class="col-lg-11 col-md-11 col-sm-12 col-xs-12">
+        <div class="alert alert-info d-flex justify-content-between align-items-center">
+            <div><strong>More Reports:</strong> Explore additional reports and insights.</div>
+            <div>
+                <a href="./?page=reports/product&start_date=<?= $start_date ?>&end_date=<?= $end_date ?>" class="btn btn-sm btn-primary">Product Sales</a>
+                <a href="./?page=reports/refunds&start_date=<?= $start_date ?>&end_date=<?= $end_date ?>" class="btn btn-sm btn-danger">Refunds</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-11 col-md-11 col-sm-12 col-xs-12">
         <div class="card card-outline rounded-3 shadow-sm border-0 mb-2">
             <div class="card-header py-1">
                 <div class="card-tools">
@@ -133,15 +143,25 @@ function format_peso($amount) {
                             <?php 
                             $g_total = 0;
                             $i = 1;
-                            // Modify the query to check for the range of dates
-                            $stock = $conn->query("SELECT * FROM `order_list` WHERE date(date_created) BETWEEN '{$start_date}' AND '{$end_date}' ORDER BY abs(unix_timestamp(date_created)) asc");
+                            // Only include Paid and Paid (Refunded Items) and compute totals excluding refunded items
+                            $stock = $conn->query("SELECT 
+                                    ol.*, 
+                                    (
+                                        SELECT IFNULL(SUM(oi.quantity * oi.price), 0)
+                                        FROM order_items oi 
+                                        WHERE oi.order_id = ol.id AND oi.refunded = 0
+                                    ) AS net_total
+                                FROM `order_list` ol
+                                WHERE date(ol.date_created) BETWEEN '{$start_date}' AND '{$end_date}'
+                                  AND ol.status IN (2,5)
+                                ORDER BY abs(unix_timestamp(ol.date_created)) asc");
                             while($row = $stock->fetch_assoc()):
                                 $user = $conn->query("SELECT username FROM `users` WHERE id = '{$row['user_id']}'");
                                 $row['processed_by'] = "N/A";
                                 if($user->num_rows > 0){
                                     $row['processed_by'] = $user->fetch_array()[0];
                                 }
-                                $g_total += $row['total_amount']; 
+                                $g_total += (float)$row['net_total']; 
                             ?>
                             <tr>
                                 <td class="px-1 py-1 align-middle text-center"><?= $i++ ?></td>
@@ -149,7 +169,7 @@ function format_peso($amount) {
                                 <td class="px-1 py-1 align-middle"><?= $row['code'] ?></td>
                                 <td class="px-1 py-1 align-middle"><?= $row['queue'] ?></td>
                                 <td class="px-1 py-1 align-middle"><?= $row['processed_by'] ?></td>
-                                <td class="px-1 py-1 align-middle text-right"><?= format_peso($row['total_amount']) ?></td> <!-- Convert to Peso -->
+                                <td class="px-1 py-1 align-middle text-right"><?= format_peso($row['net_total']) ?></td>
                             </tr>
                             <?php endwhile; ?>
                             <?php if($stock->num_rows <= 0): ?>
