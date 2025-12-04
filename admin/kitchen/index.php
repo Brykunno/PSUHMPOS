@@ -216,7 +216,12 @@
 
 
 <div class="content kitchen-header-gradient py-3 px-4 rounded shadow-sm mb-3">
-    <h3 class="font-weight-bolder text-light mb-0">🍽️ Order List (Kitchen Side)</h3>
+    <div class="d-flex align-items-center justify-content-between">
+        <h3 class="font-weight-bolder text-light mb-0">🍽️ Order List (Kitchen Side)</h3>
+        <div>
+            <a href="./?page=kitchen/serve_history" class="btn btn-light btn-sm"><i class="fa fa-history"></i> Serve History</a>
+        </div>
+    </div>
 </div>
 
 <div class="row mt-n4 justify-content-center">
