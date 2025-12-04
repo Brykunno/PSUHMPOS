@@ -49,17 +49,31 @@ try {
     
     if($item_count <= 1) {
         $conn->rollback();
-        echo json_encode(['status' => 'error', 'message' => 'Cannot delete the last item in an order. Delete the entire order instead.']);
+        echo json_encode(['status' => 'error', 'message' => 'Cannot void the last item in an order. Delete the entire order instead.']);
         exit;
     }
     
-    // Delete the order item
-    $delete_item = $conn->prepare("DELETE FROM order_items WHERE id = ? AND order_id = ?");
-    $delete_item->bind_param("ii", $item_id, $order_id);
+    // Get current user ID for void tracking
+    $voided_by = $_settings->userdata('id');
+    $reason = isset($_POST['reason']) ? $_POST['reason'] : 'Voided';
     
-    if(!$delete_item->execute()) {
+    // Instead of deleting, insert into voids table
+    $insert_void = $conn->prepare("INSERT INTO voids (order_id, order_item_id, menu_id, quantity, amount, reason, voided_by, voided_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())");
+    $insert_void->bind_param("iiidisi", $order_id, $item_id, $item_data['menu_id'], $item_data['quantity'], $item_total, $reason, $voided_by);
+    
+    if(!$insert_void->execute()) {
         $conn->rollback();
-        echo json_encode(['status' => 'error', 'message' => 'Failed to delete order item']);
+        echo json_encode(['status' => 'error', 'message' => 'Failed to record void: ' . $conn->error]);
+        exit;
+    }
+    
+    // Mark the order item as archived instead of deleting
+    $archive_item = $conn->prepare("UPDATE order_items SET archived = 1, archived_by = ?, archived_at = NOW() WHERE id = ? AND order_id = ?");
+    $archive_item->bind_param("iii", $voided_by, $item_id, $order_id);
+    
+    if(!$archive_item->execute()) {
+        $conn->rollback();
+        echo json_encode(['status' => 'error', 'message' => 'Failed to archive order item: ' . $conn->error]);
         exit;
     }
     
@@ -85,7 +99,7 @@ try {
     
     echo json_encode([
         'status' => 'success',
-        'message' => 'Order item deleted successfully',
+        'message' => 'Order item voided successfully',
         'deleted_item' => $item_data['menu_name'],
         'new_total' => number_format($new_total, 2),
         'deleted_amount' => number_format($item_total, 2)

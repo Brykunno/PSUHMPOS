@@ -110,9 +110,12 @@
 
 
 <div class="card card-outline rounded-3 shadow-sm border-0">
-	<div class="card-header py-3">
-		<h3 class="card-title mb-0"><i class="fa fa-list-alt mr-2"></i>List of Orders</h3>
-	</div>
+  <div class="card-header py-3 d-flex justify-content-between align-items-center">
+    <h3 class="card-title mb-0"><i class="fa fa-list-alt mr-2"></i>List of Orders</h3>
+    <div>
+      <a href="<?= base_url ?>admin/index.php?page=orders/void_history" class="btn btn-sm btn-light" title="Void History"><i class="fa fa-archive mr-1"></i>Void History</a>
+    </div>
+  </div>
 	<div class="card-body">
 		<div class="container-fluid">
 			<table class="table table-hover table-striped table-bordered" id="list">
@@ -143,24 +146,27 @@
 $i = 1;
 $uwhere = "";
 if ($_settings->userdata('type') != '1') {
-    $uwhere = " WHERE order_list.user_id = '{$_settings->userdata('id')}' ";
+    $uwhere = " AND order_list.user_id = '{$_settings->userdata('id')}' ";
 }
 
-// Fix the SQL query - add WHERE clause properly
+// Show orders that have at least one active (non-archived) item
+// Hide completely voided orders (all items archived)
 $qry = $conn->query("SELECT order_list.*, users.username, table_list.table_number
                      FROM order_list 
                      INNER JOIN users ON order_list.user_id = users.id 
                      LEFT JOIN table_list ON order_list.table_id = table_list.id 
+                     WHERE order_list.status IN (0, 1, 2, 3, 4, 5)
                      {$uwhere}
+                     AND (SELECT COUNT(id) FROM order_items WHERE order_id = order_list.id AND archived = 0) > 0
                      ORDER BY abs(unix_timestamp(order_list.date_created)) DESC");
 while ($row = $qry->fetch_assoc()):
     $order_id = $row['id'];
 
-    // Fetch all items for this order
+    // Fetch only non-archived items for this order
     $items = $conn->query("SELECT oi.*, ml.name AS menu_name, ml.price 
                            FROM order_items oi 
                            INNER JOIN menu_list ml ON oi.menu_id = ml.id 
-                           WHERE oi.order_id = '$order_id'");
+                           WHERE oi.order_id = '$order_id' AND oi.archived = 0");
 ?>
 <tr>
     <td class="text-center"><?php echo $i++; ?></td>
@@ -298,14 +304,15 @@ while ($row = $qry->fetch_assoc()):
           <input type="hidden" name="order_id" value="<?= $order_id ?>">
 
           <div class="form-group">
-            <label for="menu_item">Select Menu Item:</label>
-            <select class="form-control" name="menu_id" id="menu_item" required>
+            <label for="menu_item<?= $order_id ?>">Select Menu Item:</label>
+            <input type="text" class="form-control menu-search mb-2" placeholder="Search menu items..." aria-label="Search menu items">
+            <select class="form-control menu-select" name="menu_id" id="menu_item<?= $order_id ?>" required>
               <option value="">-- Select Item --</option>
               <?php
               $menus = $conn->query("SELECT * FROM menu_list ORDER BY name ASC");
               while($menu = $menus->fetch_assoc()):
               ?>
-                <option value="<?= $menu['id'] ?>"><?= $menu['name'] ?> - ₱<?= number_format($menu['price'], 2) ?></option>
+                <option value="<?= $menu['id'] ?>" data-name="<?= htmlspecialchars($menu['name'], ENT_QUOTES) ?>" data-price="<?= $menu['price'] ?>"><?= $menu['name'] ?> - ₱<?= number_format($menu['price'], 2) ?></option>
               <?php endwhile; ?>
             </select>
           </div>
@@ -1443,6 +1450,49 @@ $(document).on('click', '.view_receipt', function(){
 		});
 		$('.dataTable td, .dataTable th').addClass('py-2 px-3 align-middle');
 	});
+
+// Initialize Select2 autocomplete on Add Order modal selects (if Select2 is available)
+function initAddOrderSelect2(modal){
+  if(typeof $.fn.select2 === 'undefined') return;
+  var select = modal.find('select.menu-select');
+  if(select.length === 0) return;
+  // initialize select2 only once
+  if(select.data('select2')) return;
+  select.select2({
+    width: '100%',
+    placeholder: 'Search menu items',
+    allowClear: true,
+    dropdownParent: modal,
+    templateResult: function(data){
+      if(!data.id) return data.text;
+      var $el = $(data.element);
+      var name = $el.data('name') || data.text;
+      var price = $el.data('price') || '';
+      var $res = $("<div><div style='display:flex;justify-content:space-between;align-items:center;'><span>"+name+"</span><small class='text-muted'>₱"+parseFloat(price).toFixed(2)+"</small></div></div>");
+      return $res;
+    },
+    templateSelection: function(data){
+      if(!data.id) return data.text;
+      var $el = $(data.element);
+      return $el.data('name') || data.text;
+    }
+  });
+}
+
+// Initialize any existing modals on document ready
+$(document).on('shown.bs.modal', '[id^="addOrderModal"]', function(){
+  initAddOrderSelect2($(this));
+  // hide the manual search input when using Select2
+  $(this).find('.menu-search').hide();
+});
+
+// Also initialize for modals already present in DOM (e.g., if opened programmatically)
+$(function(){
+  $('[id^="addOrderModal"]').each(function(){
+    initAddOrderSelect2($(this));
+    $(this).find('.menu-search').hide();
+  });
+});
 	
 	// Function to show authentication error
 	function showAuthError(message) {

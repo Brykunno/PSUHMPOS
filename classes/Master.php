@@ -432,14 +432,79 @@ Class Master extends DBConnection {
 
     function delete_order(){
         extract($_POST);
-        $del = $this->conn->query("DELETE FROM `order_list` where id = '{$id}'");
-        if($del){
-            $resp['status'] = 'success';
-            $this->settings->set_flashdata('success'," Order has been deleted successfully.");
-        }else{
+        $user_id = $this->settings->userdata('id');
+        $reason_s = isset($reason) ? $this->conn->real_escape_string($reason) : 'Order Voided';
+
+        // Get the order details first
+        $order = $this->conn->query("SELECT * FROM `order_list` WHERE id = '". $this->conn->real_escape_string($id) ."'")->fetch_assoc();
+        if(!$order){
             $resp['status'] = 'failed';
-            $resp['error'] = $this->conn->error;
+            $resp['error'] = 'Order not found';
+            return json_encode($resp);
         }
+
+        // Get all order items that are not archived
+        $items = $this->conn->query("SELECT * FROM `order_items` WHERE order_id = '". $this->conn->real_escape_string($id) ."' AND archived = 0");
+        if(!$items){
+            $resp['status'] = 'failed';
+            $resp['error'] = 'Failed to fetch order items';
+            return json_encode($resp);
+        }
+
+        $this->conn->begin_transaction();
+
+        $total_voided = 0;
+
+        // Record each item in voids table
+        while($item = $items->fetch_assoc()){
+            $item_total = $item['price'] * $item['quantity'];
+            $total_voided += $item_total;
+            
+            $ins = $this->conn->query("INSERT INTO `voids` (`order_id`,`order_item_id`,`menu_id`,`quantity`,`amount`,`reason`,`voided_by`,`voided_at`) 
+                                      VALUES ('". $this->conn->real_escape_string($id) ."','". $this->conn->real_escape_string($item['id']) ."','". $this->conn->real_escape_string($item['menu_id']) ."',
+                                              '". $this->conn->real_escape_string($item['quantity']) ."','". $this->conn->real_escape_string(number_format($item_total,2,'.','')) ."',
+                                              '{$reason_s}','". $this->conn->real_escape_string($user_id) ."', CURRENT_TIMESTAMP())");
+            
+            if(!$ins){
+                $this->conn->rollback();
+                $resp['status'] = 'failed';
+                $resp['error'] = 'Failed to record void: ' . $this->conn->error;
+                return json_encode($resp);
+            }
+
+            // Mark item as archived
+            $upd = $this->conn->query("UPDATE `order_items` SET `archived` = 1, `archived_by` = '". $this->conn->real_escape_string($user_id) ."', `archived_at` = CURRENT_TIMESTAMP() 
+                                       WHERE id = '". $this->conn->real_escape_string($item['id']) ."'");
+            if(!$upd){
+                $this->conn->rollback();
+                $resp['status'] = 'failed';
+                $resp['error'] = 'Failed to archive item: ' . $this->conn->error;
+                return json_encode($resp);
+            }
+        }
+
+        // Recalculate order total (sum of non-archived items)
+        $total_result = $this->conn->query("SELECT SUM(price * quantity) as new_total FROM `order_items` WHERE order_id = '". $this->conn->real_escape_string($id) ."' AND archived = 0");
+        $new_total = 0;
+        if($total_result){
+            $total_row = $total_result->fetch_assoc();
+            $new_total = floatval($total_row['new_total'] ?? 0);
+        }
+
+        // Update order total to reflect only non-archived items (keep status the same)
+        // Don't change status - order remains visible in the list
+        $upd_order = $this->conn->query("UPDATE `order_list` SET `total_amount` = '". $this->conn->real_escape_string(number_format($new_total, 2, '.', '')) ."', `voided_by` = '". $this->conn->real_escape_string($user_id) ."' WHERE id = '". $this->conn->real_escape_string($id) ."'");
+        if(!$upd_order){
+            $this->conn->rollback();
+            $resp['status'] = 'failed';
+            $resp['error'] = 'Failed to update order: ' . $this->conn->error;
+            return json_encode($resp);
+        }
+
+        $this->conn->commit();
+
+        $resp['status'] = 'success';
+        $this->settings->set_flashdata('success'," Order has been voided successfully and recorded in void history.");
         return json_encode($resp);
     }
 
@@ -452,7 +517,7 @@ Class Master extends DBConnection {
         $orders = $this->conn->query("SELECT order_list.id, order_list.queue, order_list.order_type, COALESCE(table_list.table_number, 'N/A') as table_number FROM `order_list` LEFT JOIN table_list ON order_list.table_id = table_list.id where order_list.status = 0 {$swhere} order by abs(unix_timestamp(order_list.date_created)) asc limit 10");
         $data = [];
         while($row = $orders->fetch_assoc()){
-            $items = $this->conn->query("SELECT oi.*, concat(m.code, m.name) as `item`, oi.notes FROM `order_items` oi inner join menu_list m on oi.menu_id = m.id where order_id = '{$row['id']}'");
+            $items = $this->conn->query("SELECT oi.*, concat(m.code, m.name) as `item`, oi.notes FROM `order_items` oi inner join menu_list m on oi.menu_id = m.id where order_id = '{$row['id']}' and oi.archived = 0");
             $item_arr = [];
             while($irow = $items->fetch_assoc()){
                 $item_arr[] = $irow;
@@ -467,8 +532,9 @@ Class Master extends DBConnection {
         
     function serve_order(){
         extract($_POST);
+        $user_id = $this->settings->userdata('id');
         $update = $this->conn->query("UPDATE `order_list` set `status` = 1 where id = '{$id}'");
-        $this->conn->query("UPDATE order_items SET served = 1 WHERE order_id = '{$id}'");
+        $this->conn->query("UPDATE order_items SET served = 1, served_by = '{$user_id}', served_at = CURRENT_TIMESTAMP() WHERE order_id = '{$id}'");
         if($update){
             $resp['status'] = 'success';
         }else{
@@ -481,13 +547,377 @@ Class Master extends DBConnection {
 
     function serve_one_order(){
         extract($_POST);
-        $update = $this->conn->query("UPDATE order_items SET served = 1 WHERE id = '{$id}'");
+        $user_id = $this->settings->userdata('id');
+        $update = $this->conn->query("UPDATE order_items SET served = 1, served_by = '{$user_id}', served_at = CURRENT_TIMESTAMP() WHERE id = '{$id}'");
         if($update){
             $resp['status'] = 'success';
         }else{
             $resp['status'] = 'failed';
             $resp['error'] = $this->conn->error;
         }
+        return json_encode($resp);
+    }
+
+    function get_kitchen_serve_history(){
+        extract($_POST);
+        $swhere = "";
+        if(isset($start_date) && isset($end_date)){
+            $swhere .= " AND DATE(oi.served_at) BETWEEN '". $this->conn->real_escape_string($start_date) ."' AND '". $this->conn->real_escape_string($end_date) ."'";
+        }
+        if(isset($staff_id) && is_numeric($staff_id)){
+            $swhere .= " AND oi.served_by = '".intval($staff_id)."'";
+        }
+
+        $qry = $this->conn->query("SELECT oi.id as oi_id, oi.order_id, ol.code as order_code, oi.menu_id, m.name as item_name, oi.quantity, oi.served_by, u.username as served_by_name, oi.served_at
+            FROM order_items oi
+            INNER JOIN order_list ol ON oi.order_id = ol.id
+            INNER JOIN menu_list m ON oi.menu_id = m.id
+            LEFT JOIN users u ON oi.served_by = u.id
+            WHERE oi.served = 1 " . $swhere . " ORDER BY oi.served_at DESC LIMIT 1000");
+
+        $data = [];
+        while($row = $qry->fetch_assoc()){
+            $data[] = $row;
+        }
+        return json_encode(['status'=>'success','data'=>$data]);
+    }
+
+    function get_void_history(){
+        extract($_POST);
+        $swhere = "";
+        if(isset($start_date) && isset($end_date)){
+            $swhere .= " AND DATE(v.voided_at) BETWEEN '". $this->conn->real_escape_string($start_date) ."' AND '". $this->conn->real_escape_string($end_date) ."'";
+        }
+        if(isset($staff_id) && is_numeric($staff_id)){
+            $swhere .= " AND v.voided_by = '".intval($staff_id)."'";
+        }
+
+        $qry = $this->conn->query("SELECT v.id as vid, v.order_id, ol.code as order_code, v.order_item_id, v.menu_id, m.name as item_name, v.quantity, v.amount, v.reason, v.voided_by, u.username as voided_by_name, v.voided_at
+            FROM voids v
+            INNER JOIN order_list ol ON v.order_id = ol.id
+            LEFT JOIN menu_list m ON v.menu_id = m.id
+            LEFT JOIN users u ON v.voided_by = u.id
+            WHERE 1=1 " . $swhere . " ORDER BY v.voided_at DESC LIMIT 1000");
+
+        $data = [];
+        while($row = $qry->fetch_assoc()){
+            $data[] = $row;
+        }
+        return json_encode(['status'=>'success','data'=>$data]);
+    }
+
+    function void_item(){
+        extract($_POST);
+        $resp = ['status' => 'failed'];
+        if(empty($order_item_id) || !is_numeric($order_item_id)){
+            $resp['msg'] = 'Invalid order item.';
+            return json_encode($resp);
+        }
+
+        $user_id = $this->settings->userdata('id');
+
+        $item = $this->conn->query("SELECT * FROM `order_items` WHERE id = '". $this->conn->real_escape_string($order_item_id) ."'")->fetch_assoc();
+        if(!$item){
+            $resp['msg'] = 'Order item not found.';
+            return json_encode($resp);
+        }
+
+        if(isset($item['archived']) && $item['archived'] == 1){
+            $resp['msg'] = 'Item already archived.';
+            return json_encode($resp);
+        }
+
+        $order_id = $item['order_id'];
+        $menu_id = $item['menu_id'];
+        $available_qty = isset($item['quantity']) ? intval($item['quantity']) : 1;
+        $vqty = isset($quantity) && is_numeric($quantity) ? intval($quantity) : $available_qty;
+        if($vqty <= 0 || $vqty > $available_qty){
+            $resp['msg'] = 'Invalid quantity.';
+            return json_encode($resp);
+        }
+
+        $price = isset($item['price']) ? floatval($item['price']) : 0;
+        $amount = $price * $vqty;
+        $reason_s = isset($reason) ? $this->conn->real_escape_string($reason) : 'Voided';
+
+        $this->conn->begin_transaction();
+
+        // Insert into voids
+        $ins = $this->conn->query("INSERT INTO `voids` (`order_id`,`order_item_id`,`menu_id`,`quantity`,`amount`,`reason`,`voided_by`,`voided_at`) VALUES ('". $this->conn->real_escape_string($order_id) ."','". $this->conn->real_escape_string($order_item_id) ."','". $this->conn->real_escape_string($menu_id) ."','". $this->conn->real_escape_string($vqty) ."','". $this->conn->real_escape_string(number_format($amount,2,'.','')) ."','{$reason_s}','". $this->conn->real_escape_string($user_id) ."', CURRENT_TIMESTAMP())");
+        if(!$ins){
+            $this->conn->rollback();
+            $resp['msg'] = 'Failed to record void.';
+            $resp['error'] = $this->conn->error;
+            return json_encode($resp);
+        }
+
+        $void_id = $this->conn->insert_id;
+
+        // Update order_items to mark archived
+        $u = $this->conn->query("UPDATE `order_items` SET `archived` = 1, `archived_by` = '". $this->conn->real_escape_string($user_id) ."', `archived_at` = CURRENT_TIMESTAMP() WHERE id = '". $this->conn->real_escape_string($order_item_id) ."'");
+        if(!$u){
+            $this->conn->rollback();
+            $resp['msg'] = 'Failed to archive item.';
+            $resp['error'] = $this->conn->error;
+            return json_encode($resp);
+        }
+
+        // Subtract amount from order total
+        $upd = $this->conn->query("UPDATE `order_list` SET `total_amount` = total_amount - '". $this->conn->real_escape_string(number_format($amount,2,'.','')) ."' WHERE id = '". $this->conn->real_escape_string($order_id) ."'");
+        if(!$upd){
+            $this->conn->rollback();
+            $resp['msg'] = 'Failed to update order total.';
+            $resp['error'] = $this->conn->error;
+            return json_encode($resp);
+        }
+
+        $this->conn->commit();
+
+        $resp['status'] = 'success';
+        $resp['vid'] = $void_id;
+        $resp['msg'] = 'Item archived (voided) successfully.';
+        return json_encode($resp);
+    }
+
+    function restore_void_item(){
+        extract($_POST);
+        $resp = ['status' => 'failed'];
+        
+        if(empty($void_id) || !is_numeric($void_id)){
+            $resp['msg'] = 'Invalid void record.';
+            return json_encode($resp);
+        }
+
+        $user_id = $this->settings->userdata('id');
+
+        // Get void record details
+        $void_record = $this->conn->query("SELECT * FROM `voids` WHERE id = '". $this->conn->real_escape_string($void_id) ."'")->fetch_assoc();
+        if(!$void_record){
+            $resp['msg'] = 'Void record not found.';
+            return json_encode($resp);
+        }
+
+        $order_id = $void_record['order_id'];
+        $order_item_id = $void_record['order_item_id'];
+        $amount = floatval($void_record['amount']);
+
+        // Check if order is still pending (not yet served/completed)
+        $order = $this->conn->query("SELECT * FROM `order_list` WHERE id = '". $this->conn->real_escape_string($order_id) ."'")->fetch_assoc();
+        if(!$order){
+            $resp['msg'] = 'Order not found.';
+            return json_encode($resp);
+        }
+
+        // Only allow restore if order is not completed/paid
+        if($order['status'] == 'Completed' || $order['status'] == 'Paid'){
+            $resp['msg'] = 'Cannot restore items from completed/paid orders.';
+            return json_encode($resp);
+        }
+
+        $this->conn->begin_transaction();
+
+        // Un-archive the order item
+        $restore = $this->conn->query("UPDATE `order_items` SET `archived` = 0, `archived_by` = NULL, `archived_at` = NULL WHERE id = '". $this->conn->real_escape_string($order_item_id) ."'");
+        if(!$restore){
+            $this->conn->rollback();
+            $resp['msg'] = 'Failed to restore item.';
+            $resp['error'] = $this->conn->error;
+            return json_encode($resp);
+        }
+
+        // Delete from voids table
+        $del = $this->conn->query("DELETE FROM `voids` WHERE id = '". $this->conn->real_escape_string($void_id) ."'");
+        if(!$del){
+            $this->conn->rollback();
+            $resp['msg'] = 'Failed to remove void record.';
+            $resp['error'] = $this->conn->error;
+            return json_encode($resp);
+        }
+
+        // Add amount back to order total
+        $upd = $this->conn->query("UPDATE `order_list` SET `total_amount` = total_amount + '". $this->conn->real_escape_string(number_format($amount,2,'.','')) ."' WHERE id = '". $this->conn->real_escape_string($order_id) ."'");
+        if(!$upd){
+            $this->conn->rollback();
+            $resp['msg'] = 'Failed to update order total.';
+            $resp['error'] = $this->conn->error;
+            return json_encode($resp);
+        }
+
+        $this->conn->commit();
+
+        $resp['status'] = 'success';
+        $resp['msg'] = 'Item restored to order successfully.';
+        return json_encode($resp);
+    }
+
+    function get_voided_orders(){
+        $resp = ['status' => 'failed', 'data' => []];
+        
+        // Get all orders with voided items (voided_by is NOT NULL means entire order was voided)
+        $sql = "SELECT 
+                    ol.id,
+                    ol.code,
+                    ol.date_created,
+                    ol.voided_by
+                FROM `order_list` ol
+                WHERE ol.voided_by IS NOT NULL
+                ORDER BY ol.date_created DESC";
+        
+        $query = $this->conn->query($sql);
+        
+        if(!$query){
+            $resp['msg'] = 'Failed to fetch voided orders.';
+            $resp['error'] = $this->conn->error;
+            return json_encode($resp);
+        }
+        
+        $data = [];
+        while($row = $query->fetch_assoc()){
+            $order_id = $row['id'];
+            
+            // Count voided items and get total voided amount from voids table
+            $void_count = 0;
+            $void_total = 0;
+            $void_stats = $this->conn->query("SELECT COUNT(id) as cnt, SUM(amount) as total FROM `voids` WHERE order_id = '{$order_id}'");
+            if($void_stats){
+                $void_row = $void_stats->fetch_assoc();
+                $void_count = $void_row['cnt'];
+                $void_total = floatval($void_row['total'] ?? 0);
+            }
+            
+            // Get user name (from order_list.voided_by first, fallback to voids table)
+            $voided_by_name = 'System';
+            $voided_by_id = $row['voided_by'];
+            
+            // If voided_by is null in order_list, try to get from voids table
+            if(!$voided_by_id){
+                $void_result = $this->conn->query("SELECT voided_by FROM `voids` WHERE order_id = '{$order_id}' LIMIT 1");
+                if($void_result){
+                    $void_row = $void_result->fetch_assoc();
+                    if($void_row && isset($void_row['voided_by'])){
+                        $voided_by_id = $void_row['voided_by'];
+                    }
+                }
+            }
+            
+            // Get user details
+            if($voided_by_id){
+                $user_result = $this->conn->query("SELECT firstname, lastname FROM `users` WHERE id = '{$voided_by_id}'");
+                if($user_result){
+                    $user_row = $user_result->fetch_assoc();
+                    if($user_row){
+                        $voided_by_name = $user_row['firstname'] . ' ' . $user_row['lastname'];
+                    }
+                }
+            }
+            
+            $data[] = [
+                'id' => $row['id'],
+                'code' => $row['code'],
+                'date_created' => date('M d, Y h:i A', strtotime($row['date_created'])),
+                'item_count' => $void_count,
+                'total_amount' => $void_total,  // Return as float, not formatted string
+                'voided_by_name' => $voided_by_name
+            ];
+        }
+        
+        $resp['status'] = 'success';
+        $resp['data'] = $data;
+        return json_encode($resp);
+    }
+
+    function restore_order(){
+        extract($_POST);
+        $resp = ['status' => 'failed'];
+        
+        if(empty($order_id) || !is_numeric($order_id)){
+            $resp['msg'] = 'Invalid order.';
+            return json_encode($resp);
+        }
+
+        $user_id = $this->settings->userdata('id');
+
+        // Get order details
+        $order = $this->conn->query("SELECT * FROM `order_list` WHERE id = '". $this->conn->real_escape_string($order_id) ."'")->fetch_assoc();
+        if(!$order){
+            $resp['msg'] = 'Order not found.';
+            return json_encode($resp);
+        }
+
+        // Check if order has voided items to restore
+        $void_check = $this->conn->query("SELECT COUNT(id) as cnt FROM `voids` WHERE order_id = '". $this->conn->real_escape_string($order_id) ."'");
+        $void_count = 0;
+        if($void_check){
+            $void_check_row = $void_check->fetch_assoc();
+            $void_count = intval($void_check_row['cnt']);
+        }
+        
+        if($void_count == 0){
+            $resp['msg'] = 'This order has no voided items to restore.';
+            return json_encode($resp);
+        }
+
+        // Get all void records for this order
+        $voids = $this->conn->query("SELECT * FROM `voids` WHERE order_id = '". $this->conn->real_escape_string($order_id) ."'");
+        if(!$voids){
+            $resp['msg'] = 'Failed to fetch void records.';
+            return json_encode($resp);
+        }
+
+        $this->conn->begin_transaction();
+
+        $total_restored = 0;
+        $void_ids = [];
+
+        // Process each void record
+        while($void = $voids->fetch_assoc()){
+            $void_ids[] = $void['id'];
+            $total_restored += floatval($void['amount']);
+
+            // Un-archive the order item
+            $upd = $this->conn->query("UPDATE `order_items` SET `archived` = 0, `archived_by` = NULL, `archived_at` = NULL WHERE id = '". $this->conn->real_escape_string($void['order_item_id']) ."'");
+            if(!$upd){
+                $this->conn->rollback();
+                $resp['msg'] = 'Failed to restore item.';
+                $resp['error'] = $this->conn->error;
+                return json_encode($resp);
+            }
+        }
+
+        // Delete all void records for this order
+        if(!empty($void_ids)){
+            $void_ids_str = implode(',', $void_ids);
+            $del = $this->conn->query("DELETE FROM `voids` WHERE id IN ({$void_ids_str})");
+            if(!$del){
+                $this->conn->rollback();
+                $resp['msg'] = 'Failed to remove void records.';
+                $resp['error'] = $this->conn->error;
+                return json_encode($resp);
+            }
+        }
+
+        // Calculate new total from all non-archived items
+        $total_calc = $this->conn->query("SELECT SUM(price * quantity) as calculated_total FROM `order_items` WHERE order_id = '". $this->conn->real_escape_string($order_id) ."' AND archived = 0");
+        $calculated_total = 0;
+        if($total_calc){
+            $calc_row = $total_calc->fetch_assoc();
+            $calculated_total = floatval($calc_row['calculated_total'] ?? 0);
+        }
+
+        // Update order total with calculated amount (keep existing status)
+        $upd_order = $this->conn->query("UPDATE `order_list` SET `total_amount` = '". $this->conn->real_escape_string(number_format($calculated_total,2,'.','')) ."', `voided_by` = NULL WHERE id = '". $this->conn->real_escape_string($order_id) ."'");
+        if(!$upd_order){
+            $this->conn->rollback();
+            $resp['status'] = 'failed';
+            $resp['msg'] = 'Failed to restore order.';
+            $resp['error'] = $this->conn->error;
+            return json_encode($resp);
+        }
+
+        $this->conn->commit();
+
+        $resp['status'] = 'success';
+        $resp['msg'] = 'Order restored successfully.';
         return json_encode($resp);
     }
 
@@ -798,6 +1228,9 @@ switch ($action) {
     case 'serve_one_order':
         echo $Master->serve_one_order();
         break;
+    case 'get_kitchen_serve_history':
+        echo $Master->get_kitchen_serve_history();
+        break;
     case 'refund_order':
         echo $Master->refund_order();
         break;
@@ -816,9 +1249,26 @@ switch ($action) {
     case 'update_table_status':
         echo $Master->update_table_status();
         break;
+    case 'get_void_history':
+        echo $Master->get_void_history();
+        break;
+    case 'void_item':
+        echo $Master->void_item();
+        break;
+    case 'restore_void_item':
+        echo $Master->restore_void_item();
+        break;
+    case 'get_voided_orders':
+        echo $Master->get_voided_orders();
+        break;
+    case 'restore_order':
+        echo $Master->restore_order();
+        break;
 
     default:
-        // echo $sysset->index();
+        // Return a JSON error for unknown dispatcher actions to avoid empty responses
+        header('Content-Type: application/json');
+        echo json_encode(['status' => 'failed', 'msg' => 'Invalid action specified.']);
         break;
 }
 
