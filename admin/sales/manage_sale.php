@@ -799,6 +799,9 @@ $table_id = isset($_GET['table_id']) ? intval($_GET['table_id']) : 0;
             <div class="card-body">
                 <form action="" id="sales-form">
                     <input type="hidden" name="total_amount" value="0">
+                  <input type="hidden" name="discount_type" value="N/A">
+                    <input type="hidden" name="promo_discount_id" value="">
+                    <input type="hidden" name="promo_discount_amount" value="0">
                        
     <input type="hidden" name="table_id" value="<?= $table_id ?>">
 
@@ -937,20 +940,41 @@ $table_id = isset($_GET['table_id']) ? intval($_GET['table_id']) : 0;
     <small class="mb-0 text-white text-right" id="vat_total">₱0.00</small> <!-- Peso sign added -->
 </div>
 
-<!-- Discount -->
-<div class="justify-content-between align-items-center w-100 my-1 d-none">
-    <small class="mb-0 font-weight-bold text-white">Discount</small>
-    <select id="discount_type" name="discount_type" class="form-control form-control-sm rounded-0 bg-light font-weight-bold" style="width: 120px; font-size: 12px;">
-        <option value="N/A" data-percent="0" selected>N/A</option>
+<!-- Promo Discount Selector -->
+<div class="d-flex justify-content-between align-items-center w-100 my-1 px-2 py-2 bg-light rounded">
+    <small class="mb-0 font-weight-bold text-dark">
+        <i class="fas fa-tag text-success"></i> Promo Discount
+    </small>
+    <select id="promo_discount" name="promo_discount" class="form-control form-control-sm rounded-0 bg-white font-weight-bold" style="width: 180px; font-size: 12px;">
+        <option value="" data-discount="0" data-type="percentage" selected>
+            <i class="fas fa-check"></i> No Promo
+        </option>
         <?php
-        $discounts = $conn->query("SELECT * FROM discount_list");
-        while($discount = $discounts->fetch_assoc()):
+        $promos = $conn->query("SELECT * FROM promo_discount WHERE is_active = 1 AND delete_flag = 0 AND DATE(start_date) <= CURDATE() AND DATE(end_date) >= CURDATE() AND (usage_limit IS NULL OR usage_count < usage_limit) ORDER BY discount_value DESC");
+        while($promo = $promos->fetch_assoc()):
+            $discount_label = $promo['discount_type'] === 'percentage' 
+                ? $promo['discount_value'] . '% Off' 
+                : '₱' . number_format($promo['discount_value'], 2) . ' Off';
         ?>
-            <option value="<?= $discount['name'] ?>" data-percent="<?= $discount['percentage'] ?>">
-                <?= $discount['name'] ?>
+            <option value="<?= $promo['id'] ?>" 
+                    data-discount="<?= $promo['discount_value'] ?>" 
+                    data-type="<?= $promo['discount_type'] ?>"
+                    data-min="<?= $promo['minimum_amount'] ?>"
+                    data-max="<?= $promo['maximum_discount'] ?>"
+                    data-usage="<?= $promo['usage_count'] ?>"
+                    data-limit="<?= $promo['usage_limit'] ?>"
+                    title="<?= htmlspecialchars($promo['description']) ?>">
+                <?= htmlspecialchars($promo['name']) ?> - <?= $discount_label ?>
             </option>
         <?php endwhile; ?>
     </select>
+    <small id="promo_info" class="text-muted ml-2"></small>
+</div>
+
+<!-- Applied Promo Display -->
+<div id="promo_applied_display" class="d-none alert alert-success py-1 px-2 my-1 mb-2" style="font-size: 12px;">
+    <i class="fas fa-check-circle"></i> 
+    <span id="promo_applied_text"></span>
 </div>
 
 <!-- Grand Total -->
@@ -1176,6 +1200,10 @@ $table_id = isset($_GET['table_id']) ? intval($_GET['table_id']) : 0;
           <strong>Order Type:</strong> 
           <span id="orderTypeSummary" class="badge badge-info"></span>
         </div>
+        <div class="mb-2" id="promoSummarySection" style="display: none;">
+          <strong>Promo Discount:</strong> 
+          <span id="promoSummary" class="badge badge-success"></span>
+        </div>
         <div class="mb-2">
           <strong>Discount:</strong> 
           <span id="discountSummary" class="badge badge-success"></span>
@@ -1308,6 +1336,38 @@ function calculateChange() {
   });
 }
 
+// Helper function to calculate order subtotal (before promo discount)
+function getOrderSubtotal() {
+  let subtotal = 0;
+  $('#order-items-body .product-item').each(function() {
+    const price = parseFloat($(this).find('input[name="price[]"]').val()) || 0;
+    const qty = parseInt($(this).find('input[name="quantity[]"]').val()) || 0;
+    subtotal += price * qty;
+  });
+  return subtotal;
+}
+
+// Helper function to display promo discount info in confirmation modal
+function getPromoDiscountDisplay() {
+  const promoAmount = parseFloat($('input[name="promo_discount_amount"]').val()) || 0;
+  const promoId = $('input[name="promo_discount_id"]').val();
+  
+  if (promoId && promoAmount > 0) {
+    const promoOption = $('#promo_discount').find('option:selected');
+    const promoName = promoOption.text();
+    return `
+      <div class="alert alert-success py-2 px-3 mb-2">
+        <div class="d-flex justify-content-between align-items-center">
+          <strong><i class="fas fa-tag"></i> Promo Applied:</strong>
+          <span class="font-weight-bold">-₱${promoAmount.toFixed(2)}</span>
+        </div>
+        <small class="text-white d-block mt-1">${promoName}</small>
+      </div>
+    `;
+  }
+  return '';
+}
+
 $(function() {
   $('body').addClass('sidebar-collapse');
 
@@ -1319,8 +1379,34 @@ $(function() {
 
 
   $('#discount_type').on('change', calc_total);
+  
+  // Promo discount change handler
+  $('#promo_discount').on('change', function() {
+    const selectedOption = $(this).find('option:selected');
+    const promoId = selectedOption.val();
+    const promoName = selectedOption.text();
+    const minimumAmount = parseFloat(selectedOption.data('min')) || 0;
+    
+    if (promoId) {
+      // Check if order meets minimum
+      const currentTotal = parseFloat($('[name="total_amount"]').val()) || 0;
+      if (currentTotal >= minimumAmount || minimumAmount === 0) {
+        $('#promo_applied_display').removeClass('d-none');
+        $('#promo_applied_text').text(`Promo "${promoName}" will be applied to this order!`);
+        $('#promo_info').html('');
+      } else {
+        $('#promo_applied_display').addClass('d-none');
+        $('#promo_info').html(`<i class="fas fa-exclamation-circle text-warning"></i> Minimum ₱${minimumAmount.toFixed(2)} required`);
+      }
+    } else {
+      $('#promo_applied_display').addClass('d-none');
+      $('#promo_info').html('');
+    }
+    
+    calc_total();
+  });
 
-  $('.cat_btn').click(function() {
+  $(document).on('click', '.cat_btn', function() {
     $('.cat_btn.bg-gradient-warning').removeClass('bg-gradient-warning text-light').addClass('bg-gradient-light border');
     $(this).removeClass('bg-gradient-light border').addClass('bg-gradient-warning text-light');
 
@@ -1355,13 +1441,44 @@ $(function() {
       subtotal += itemTotal;
     });
 
-    let grandTotal = subtotal;
-    const discountAmount = grandTotal * (0 / 100);
-    grandTotal -= discountAmount;
+    // Calculate promo discount
+    let promoDiscount = 0;
+    const selectedPromo = $('#promo_discount').find('option:selected');
+    
+    if (selectedPromo.val()) {
+      const discountValue = parseFloat(selectedPromo.data('discount')) || 0;
+      const discountType = selectedPromo.data('type') || 'percentage';
+      const minimumAmount = parseFloat(selectedPromo.data('min')) || 0;
+      const maximumDiscount = parseFloat(selectedPromo.data('max')) || 0;
+      
+      // Check if order meets minimum amount requirement
+      if (subtotal >= minimumAmount) {
+        if (discountType === 'percentage') {
+          promoDiscount = (subtotal * discountValue) / 100;
+        } else {
+          promoDiscount = discountValue;
+        }
+        
+        // Apply maximum discount cap if applicable
+        if (maximumDiscount > 0 && promoDiscount > maximumDiscount) {
+          promoDiscount = maximumDiscount;
+        }
+      } else {
+        // Show warning if minimum amount not met
+        if (minimumAmount > 0) {
+          $('#promo_info').html(`<i class="fas fa-exclamation-circle text-warning"></i> Minimum ₱${minimumAmount.toFixed(2)} required`);
+          promoDiscount = 0;
+        }
+      }
+    }
+
+    let grandTotal = subtotal - promoDiscount;
 
     $('[name="total_amount"]').val(grandTotal);
+    $('[name="promo_discount_id"]').val(selectedPromo.val());
+    $('[name="promo_discount_amount"]').val(promoDiscount);
+    
     $('#grand_total').text('₱' + grandTotal.toFixed(2));
-    $('#discount_value').text('₱' + discountAmount.toFixed(2));
 
     calculateChange();
   }
@@ -1608,9 +1725,16 @@ $(function() {
       <h6 class="font-weight-bold">Order Items:</h6>
       <ul class="list-group mb-3">${orderSummary}</ul>
       
-      <div class="d-flex justify-content-between mt-3">
-        <strong>Total Amount:</strong>
-        <span class="font-weight-bold text-primary">₱${parseFloat($('input[name="total_amount"]').val()).toFixed(2)}</span>
+      <div class="d-flex justify-content-between mt-3 mb-2">
+        <strong>Subtotal:</strong>
+        <span class="font-weight-bold text-primary">₱${getOrderSubtotal().toFixed(2)}</span>
+      </div>
+      
+      ${getPromoDiscountDisplay()}
+      
+      <div class="d-flex justify-content-between mt-3 pt-2 border-top">
+        <strong>Grand Total:</strong>
+        <span class="font-weight-bold text-success" style="font-size: 18px;">₱${parseFloat($('input[name="total_amount"]').val()).toFixed(2)}</span>
       </div>
     `);
 
@@ -1691,9 +1815,16 @@ $(function() {
       <h6 class="font-weight-bold">Order Items:</h6>
       <ul class="list-group mb-3">${orderSummary}</ul>
       
-      <div class="d-flex justify-content-between mt-3">
-        <strong>Total Amount:</strong>
-        <span class="font-weight-bold text-primary">₱${parseFloat($('input[name="total_amount"]').val()).toFixed(2)}</span>
+      <div class="d-flex justify-content-between mt-3 mb-2">
+        <strong>Subtotal:</strong>
+        <span class="font-weight-bold text-primary">₱${getOrderSubtotal().toFixed(2)}</span>
+      </div>
+      
+      ${getPromoDiscountDisplay()}
+      
+      <div class="d-flex justify-content-between mt-3 pt-2 border-top">
+        <strong>Grand Total:</strong>
+        <span class="font-weight-bold text-success" style="font-size: 18px;">₱${parseFloat($('input[name="total_amount"]').val()).toFixed(2)}</span>
       </div>
     `);
 

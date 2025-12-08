@@ -151,14 +151,20 @@ if ($_settings->userdata('type') != '1') {
 
 // Show orders that have at least one active (non-archived) item
 // Hide completely voided orders (all items archived)
-$qry = $conn->query("SELECT order_list.*, users.username, table_list.table_number
-                     FROM order_list 
-                     INNER JOIN users ON order_list.user_id = users.id 
-                     LEFT JOIN table_list ON order_list.table_id = table_list.id 
-                     WHERE order_list.status IN (0, 1, 2, 3, 4, 5)
-                     {$uwhere}
-                     AND (SELECT COUNT(id) FROM order_items WHERE order_id = order_list.id AND archived = 0) > 0
-                     ORDER BY abs(unix_timestamp(order_list.date_created)) DESC");
+$qry = $conn->query("SELECT order_list.*, 
+        users.username, 
+        table_list.table_number,
+        promo_discount.name AS promo_name,
+        promo_discount.discount_type AS promo_type,
+        promo_discount.discount_value AS promo_value
+      FROM order_list 
+      INNER JOIN users ON order_list.user_id = users.id 
+      LEFT JOIN table_list ON order_list.table_id = table_list.id 
+      LEFT JOIN promo_discount ON order_list.promo_discount_id = promo_discount.id
+      WHERE order_list.status IN (0, 1, 2, 3, 4, 5)
+      {$uwhere}
+      AND (SELECT COUNT(id) FROM order_items WHERE order_id = order_list.id AND archived = 0) > 0
+      ORDER BY abs(unix_timestamp(order_list.date_created)) DESC");
 while ($row = $qry->fetch_assoc()):
     $order_id = $row['id'];
 
@@ -339,6 +345,17 @@ while ($row = $qry->fetch_assoc()):
           <strong>Discount:</strong> 
           <span class="badge badge-success"><?= $row['discount'] ?? 'None' ?></span>
         </div> -->
+        <?php if(!empty($row['promo_discount_amount']) && $row['promo_discount_amount'] > 0): ?>
+        <div class="mb-2">
+          <strong>Promo Discount:</strong>
+          <span class="badge badge-success">
+            <?= htmlspecialchars($row['promo_name'] ?? 'Promo') ?>
+            (<?= $row['promo_type'] === 'percentage' ? $row['promo_value'].'%' : '₱'.number_format($row['promo_value'],2) ?>)
+          </span>
+          <span class="ml-2 text-danger">-₱<?= number_format($row['promo_discount_amount'], 2) ?></span>
+        </div>
+        <?php endif; ?>
+
         <div class="mb-2">
           <strong>Total Amount:</strong> 
           <span class="font-weight-bold">₱<?= number_format($row['total_amount'], 2) ?></span>
@@ -534,7 +551,7 @@ while ($row = $qry->fetch_assoc()):
         <div class="modal-body">
           <div class="alert alert-warning">
             <i class="fa fa-exclamation-triangle mr-2"></i>
-            <strong>Warning:</strong> You are about to permanently delete this order. Admin credentials are required to proceed.
+            <strong>Warning:</strong> You are about to void this order. Admin credentials are required to proceed.
           </div>
           
           <div class="form-group">
@@ -568,7 +585,7 @@ while ($row = $qry->fetch_assoc()):
             <i class="fa fa-times mr-1"></i>Cancel
           </button>
           <button type="submit" class="btn btn-danger" id="confirmDeleteBtn">
-            <i class="fa fa-trash mr-1"></i>Confirm Delete
+            <i class="fa fa-trash mr-1"></i>Confirm Void
           </button>
         </div>
       </form>
@@ -1055,7 +1072,7 @@ while ($row = $qry->fetch_assoc()):
 			orderToDelete = $(this).attr('data-id');
 			deleteType = 'order';
 			$('#adminAuthModal').modal('show');
-			$('#adminAuthModalLabel').html('<i class="fa fa-shield-alt mr-2"></i>Admin Authentication Required - Delete Order');
+			$('#adminAuthModalLabel').html('<i class="fa fa-shield-alt mr-2"></i>Admin Authentication Required - Void Order');
 			// Clear previous form data and errors
 			$('#adminAuthForm')[0].reset();
 			$('#authError').addClass('d-none');
@@ -1072,7 +1089,7 @@ while ($row = $qry->fetch_assoc()):
 			itemToDelete = itemData;
 			deleteType = 'item';
 			$('#adminAuthModal').modal('show');
-			$('#adminAuthModalLabel').html('<i class="fa fa-shield-alt mr-2"></i>Admin Authentication Required - Delete Item');
+			$('#adminAuthModalLabel').html('<i class="fa fa-shield-alt mr-2"></i>Admin Authentication Required - Void Item');
 			// Clear previous form data and errors
 			$('#adminAuthForm')[0].reset();
 			$('#authError').addClass('d-none');
@@ -1352,10 +1369,10 @@ $(document).on('click', '.view_receipt', function(){
 						
 						if(deleteType === 'order') {
 							// Show confirmation dialog for order deletion
-							_conf("Are you sure to delete this order permanently?", "delete_order", [orderToDelete]);
+							_conf("Are you sure to void this order?", "delete_order", [orderToDelete]);
 						} else if(deleteType === 'item') {
 							// Show confirmation dialog for item deletion - pass individual values instead of object
-							_conf("Are you sure to delete '" + itemToDelete.itemName + "' from this order?", "delete_order_item", [itemToDelete.orderId, itemToDelete.itemId, "'" + itemToDelete.itemName + "'"]);
+							_conf("Are you sure to void '" + itemToDelete.itemName + "' from this order?", "delete_order_item", [itemToDelete.orderId, itemToDelete.itemId, "'" + itemToDelete.itemName + "'"]);
 						}
 						
 						// Ensure the Continue button in confirmation modal is clickable

@@ -2,13 +2,27 @@
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
-require_once('../config.php');
+// Fix path resolution
+if(!defined('BASE_PATH')) {
+    define('BASE_PATH', dirname(dirname(__FILE__)));
+}
+require_once(BASE_PATH . '/config.php');
+require_once(BASE_PATH . '/classes/ActivityLog.php');
+
 Class Master extends DBConnection {
     private $settings;
+    private $activityLog;
     
     public function __construct(){
         global $_settings;
         $this->settings = $_settings;
+        // Initialize ActivityLog only if table exists
+        try {
+            $this->activityLog = new ActivityLog();
+        } catch (Exception $e) {
+            // If ActivityLog fails, create a dummy object
+            $this->activityLog = null;
+        }
         parent::__construct();
     }
     
@@ -77,6 +91,13 @@ Class Master extends DBConnection {
             $resp['cid'] = $cid;
             $resp['status'] = 'success';
             $resp['msg'] = empty($id) ? "New Category successfully saved." : " Category successfully updated.";
+            
+            // Log activity
+            if($this->activityLog) {
+                $action = empty($id) ? 'create' : 'update';
+                $description = empty($id) ? "Created new category: {$name}" : "Updated category: {$name}";
+                $this->activityLog->log_activity($action, $description, 'categories', $cid);
+            }
         }else{
             $resp['status'] = 'failed';
             $resp['err'] = $this->conn->error."[{$sql}]";
@@ -86,10 +107,20 @@ Class Master extends DBConnection {
 
     function delete_category(){
         extract($_POST);
+        
+        // Get category name before deleting
+        $cat_qry = $this->conn->query("SELECT name FROM `category_list` WHERE id = '{$id}'");
+        $cat_name = $cat_qry->num_rows > 0 ? $cat_qry->fetch_assoc()['name'] : 'Unknown';
+        
         $del = $this->conn->query("UPDATE `category_list` set `delete_flag` = 1 where id = '{$id}'");
         if($del){
             $resp['status'] = 'success';
             $this->settings->set_flashdata('success'," Category successfully deleted.");
+            
+            // Log activity
+            if($this->activityLog) {
+                $this->activityLog->log_activity('delete', "Deleted category: {$cat_name}", 'categories', $id);
+            }
         }else{
             $resp['status'] = 'failed';
             $resp['error'] = $this->conn->error;
@@ -156,6 +187,13 @@ Class Master extends DBConnection {
             $resp['iid'] = $iid;
             $resp['status'] = 'success';
             $resp['msg'] = empty($id) ? "New Menu successfully saved." : "Menu successfully updated.";
+            
+            // Log activity
+            if($this->activityLog) {
+                $action = empty($id) ? 'create' : 'update';
+                $description = empty($id) ? "Created new menu item: {$name}" : "Updated menu item: {$name}";
+                $this->activityLog->log_activity($action, $description, 'menus', $iid);
+            }
         }else{
             $resp['status'] = 'failed';
             $resp['err'] = $this->conn->error."[{$sql}]";
@@ -233,6 +271,124 @@ Class Master extends DBConnection {
             'msg' => $delete ? "Discount successfully deleted." : "An error occurred: ".$this->conn->error
         ]);
     }
+
+    // ==================== PROMO DISCOUNT FUNCTIONS ====================
+    
+    function save_promo_discount(){
+        extract($_POST);
+        $resp = [];
+        // Validate required fields
+        if(empty($name) || empty($discount_type) || empty($discount_value) || empty($start_date) || empty($end_date)){
+               return json_encode(['status' => 'failed', 'msg' => 'Required fields are missing.']);
+        }
+        
+        // Convert datetime-local format (YYYY-MM-DDTHH:MM) to MySQL format (YYYY-MM-DD HH:MM:SS)
+        $start_date = str_replace('T', ' ', $start_date);
+        $end_date = str_replace('T', ' ', $end_date);
+        
+        // Add seconds if not present
+        if(strlen($start_date) == 16) $start_date .= ':00';
+        if(strlen($end_date) == 16) $end_date .= ':00';
+    
+        // Validate discount values
+        $discount_value = floatval($discount_value);
+        if($discount_type === 'percentage' && ($discount_value < 0 || $discount_value > 100)){
+            return json_encode(['status' => 'failed', 'msg' => 'Percentage must be between 0 and 100.']);
+        }
+        if($discount_value < 0){
+            return json_encode(['status' => 'failed', 'msg' => 'Discount value cannot be negative.']);
+        }
+    
+        // Validate dates
+        $start_dt = new DateTime($start_date);
+        $end_dt = new DateTime($end_date);
+        if($start_dt >= $end_dt){
+            return json_encode(['status' => 'failed', 'msg' => 'End date must be after start date.']);
+        }
+    
+        $minimum_amount = isset($minimum_amount) ? floatval($minimum_amount) : 0.00;
+        $maximum_discount = isset($maximum_discount) && !empty($maximum_discount) ? floatval($maximum_discount) : NULL;
+        $usage_limit = isset($usage_limit) && !empty($usage_limit) ? intval($usage_limit) : NULL;
+        $is_active = isset($is_active) ? intval($is_active) : 1;
+        $applicable_to = isset($applicable_to) ? $applicable_to : 'all_items';
+        $applicable_id = isset($applicable_id) && !empty($applicable_id) ? intval($applicable_id) : NULL;
+        $description = isset($description) ? $description : '';
+    
+        // Check for duplicate promo name
+        $stmt = $this->conn->prepare("SELECT id FROM `promo_discount` WHERE `name` = ? AND `delete_flag` = 0" . (!empty($id) ? " AND id != ?" : ""));
+        if (!empty($id)) {
+            $stmt->bind_param("si", $name, $id);
+        } else {
+            $stmt->bind_param("s", $name);
+        }
+        $stmt->execute();
+        $check = $stmt->get_result()->num_rows;
+        $stmt->close();
+    
+        if ($check > 0) {
+            return json_encode(['status' => 'failed', 'msg' => "Promo discount name already exists."]);
+        }
+    
+        // Save or update promo discount
+        if (empty($id)) {
+            $stmt = $this->conn->prepare("INSERT INTO `promo_discount` 
+                (`name`, `description`, `discount_type`, `discount_value`, `minimum_amount`, `maximum_discount`, 
+                `start_date`, `end_date`, `is_active`, `usage_limit`, `applicable_to`, `applicable_id`) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+               $stmt->bind_param("sssdddssiisi", $name, $description, $discount_type, $discount_value, $minimum_amount, 
+                   $maximum_discount, $start_date, $end_date, $is_active, $usage_limit, $applicable_to, $applicable_id);
+        } else {
+            $stmt = $this->conn->prepare("UPDATE `promo_discount` SET 
+                `name` = ?, `description` = ?, `discount_type` = ?, `discount_value` = ?, `minimum_amount` = ?, 
+                `maximum_discount` = ?, `start_date` = ?, `end_date` = ?, `is_active` = ?, `usage_limit` = ?, 
+                `applicable_to` = ?, `applicable_id` = ? WHERE id = ?");
+               $stmt->bind_param("sssdddssiisii", $name, $description, $discount_type, $discount_value, $minimum_amount, 
+                   $maximum_discount, $start_date, $end_date, $is_active, $usage_limit, $applicable_to, $applicable_id, $id);
+        }
+    
+        $save = $stmt->execute();
+        $stmt->close();
+    
+        return json_encode([
+            'status' => $save ? 'success' : 'failed',
+            'cid' => $save ? (empty($id) ? $this->conn->insert_id : $id) : null,
+            'msg' => $save ? "Promo discount successfully saved." : "SQL Error: ".$this->conn->error
+        ]);
+    }
+    
+    function delete_promo_discount(){
+        extract($_POST);
+        
+        // Validate ID
+        if(empty($id) || !is_numeric($id)){
+            return json_encode(['status' => 'failed', 'msg' => 'Invalid promo discount ID.']);
+        }
+    
+        // Use prepared statement for security
+        $stmt = $this->conn->prepare("UPDATE `promo_discount` SET `delete_flag` = 1 WHERE id = ?");
+        $stmt->bind_param("i", $id);
+        $delete = $stmt->execute();
+        $stmt->close();
+    
+        return json_encode([
+            'status' => $delete ? 'success' : 'failed',
+            'msg' => $delete ? "Promo discount successfully deleted." : "An error occurred: ".$this->conn->error
+        ]);
+    }
+
+    function get_active_promo_discounts(){
+        // Get all active promo discounts for current time
+        $now = date('Y-m-d H:i:s');
+        $query = "SELECT * FROM `promo_discount` 
+                  WHERE `is_active` = 1 
+                  AND `delete_flag` = 0 
+                  AND DATE(start_date) <= CURDATE() 
+                  AND DATE(end_date) >= CURDATE()
+                  AND (usage_limit IS NULL OR usage_count < usage_limit)
+                  ORDER BY discount_value DESC";
+        return $this->conn->query($query);
+    }
+
     
 
 
@@ -287,6 +443,15 @@ Class Master extends DBConnection {
             $val = $this->conn->real_escape_string($_POST[$field]);
             $data .= ($data ? ", " : "") . " `{$field}` = '{$val}' ";
         }
+        
+        // Add promo discount fields if present
+        if (!empty($_POST['promo_discount_id']) && !empty($_POST['promo_discount_amount'])) {
+            $promo_id = $this->conn->real_escape_string($_POST['promo_discount_id']);
+            $promo_amount = $this->conn->real_escape_string($_POST['promo_discount_amount']);
+            $data .= ", `promo_discount_id` = '{$promo_id}', `promo_discount_amount` = '{$promo_amount}'";
+        } else {
+            $data .= ", `promo_discount_id` = NULL, `promo_discount_amount` = 0";
+        }
     
         $sql = "INSERT INTO `order_list` SET {$data}";
         error_log("SQL Order List: $sql");
@@ -297,7 +462,7 @@ Class Master extends DBConnection {
         if ($save) {
             $oid = $this->conn->insert_id;
             $resp['oid'] = $oid;
-    
+
             if (isset($_POST['menu_id'], $_POST['price'], $_POST['quantity']) &&
                 is_array($_POST['menu_id']) && is_array($_POST['price']) && is_array($_POST['quantity'])) {
                 
@@ -309,14 +474,29 @@ Class Master extends DBConnection {
                     $n = $this->conn->real_escape_string($_POST['notes'][$k]);
                     $items_data .= ($items_data ? ", " : "") . "('{$oid}', '{$mid}', '{$p}', '{$q}', '{$n}')";
                 }
-    
+
                 $sql2 = "INSERT INTO `order_items` (`order_id`, `menu_id`, `price`, `quantity`, `notes`) VALUES {$items_data}";
                 error_log("SQL Order Items: $sql2");
-    
+
                 $save2 = $this->conn->query($sql2);
                 if ($save2) {
+                    // Track promo usage if promo was applied
+                    if (!empty($_POST['promo_discount_id'])) {
+                        $promo_id = $this->conn->real_escape_string($_POST['promo_discount_id']);
+                        $this->conn->query("UPDATE `promo_discount` SET `usage_count` = `usage_count` + 1 WHERE id = '{$promo_id}'");
+                    }
+                    
                     $resp['status'] = 'success';
                     $resp['msg'] = 'Order placed successfully.';
+                    
+                    // Log activity
+                    if($this->activityLog) {
+                        $table_id = isset($_POST['table_id']) ? $_POST['table_id'] : 'Unknown';
+                        $total = isset($_POST['total_amount']) ? $_POST['total_amount'] : '0';
+                        $item_count = count($_POST['menu_id']);
+                        $description = "Placed order #{$oid} for Table {$table_id} with {$item_count} items. Total: ₱{$total}";
+                        $this->activityLog->log_activity('create', $description, 'orders', $oid);
+                    }
                 } else {
                     // Rollback: delete the order header if items fail
                     $this->conn->query("DELETE FROM `order_list` WHERE id = '{$oid}'");
@@ -443,6 +623,8 @@ Class Master extends DBConnection {
             return json_encode($resp);
         }
 
+        $table_id = isset($order['table_id']) ? $order['table_id'] : null;
+
         // Get all order items that are not archived
         $items = $this->conn->query("SELECT * FROM `order_items` WHERE order_id = '". $this->conn->real_escape_string($id) ."' AND archived = 0");
         if(!$items){
@@ -454,6 +636,7 @@ Class Master extends DBConnection {
         $this->conn->begin_transaction();
 
         $total_voided = 0;
+        $voided_items = array(); // Track voided items for logging
 
         // Record each item in voids table
         while($item = $items->fetch_assoc()){
@@ -471,6 +654,13 @@ Class Master extends DBConnection {
                 $resp['error'] = 'Failed to record void: ' . $this->conn->error;
                 return json_encode($resp);
             }
+            
+            // Track item for logging
+            $voided_items[] = array(
+                'quantity' => $item['quantity'],
+                'menu_id' => $item['menu_id'],
+                'amount' => $item_total
+            );
 
             // Mark item as archived
             $upd = $this->conn->query("UPDATE `order_items` SET `archived` = 1, `archived_by` = '". $this->conn->real_escape_string($user_id) ."', `archived_at` = CURRENT_TIMESTAMP() 
@@ -491,9 +681,8 @@ Class Master extends DBConnection {
             $new_total = floatval($total_row['new_total'] ?? 0);
         }
 
-        // Update order total to reflect only non-archived items (keep status the same)
-        // Don't change status - order remains visible in the list
-        $upd_order = $this->conn->query("UPDATE `order_list` SET `total_amount` = '". $this->conn->real_escape_string(number_format($new_total, 2, '.', '')) ."', `voided_by` = '". $this->conn->real_escape_string($user_id) ."' WHERE id = '". $this->conn->real_escape_string($id) ."'");
+        // Update order total, mark who voided it, and flag status as voided (6) while keeping table reference for potential restore
+        $upd_order = $this->conn->query("UPDATE `order_list` SET `total_amount` = '". $this->conn->real_escape_string(number_format($new_total, 2, '.', '')) ."', `voided_by` = '". $this->conn->real_escape_string($user_id) ."', `status` = 6 WHERE id = '". $this->conn->real_escape_string($id) ."'");
         if(!$upd_order){
             $this->conn->rollback();
             $resp['status'] = 'failed';
@@ -501,9 +690,65 @@ Class Master extends DBConnection {
             return json_encode($resp);
         }
 
+        // Mark the physical table as available again
+        if(!empty($table_id)){
+            $tbl_upd = $this->conn->query("UPDATE `table_list` SET `status` = 1 WHERE id = '". $this->conn->real_escape_string($table_id) ."'");
+            if(!$tbl_upd){
+                $this->conn->rollback();
+                $resp['status'] = 'failed';
+                $resp['error'] = 'Failed to update table status: ' . $this->conn->error;
+                return json_encode($resp);
+            }
+        }
+
         $this->conn->commit();
 
         $resp['status'] = 'success';
+        
+        // Log activity for each voided item and entire order void
+        if($this->activityLog) {
+            try {
+                // Fetch menu names for all voided items
+                $voided_items_result = $this->conn->query("SELECT oi.id, oi.quantity, ml.name as item_name, (oi.price * oi.quantity) as item_total
+                                                           FROM order_items oi
+                                                           LEFT JOIN menu_list ml ON oi.menu_id = ml.id
+                                                           WHERE oi.order_id = '". $this->conn->real_escape_string($id) ."' AND oi.archived = 1 AND oi.archived_by = '". $this->conn->real_escape_string($user_id) ."'");
+                
+                if($voided_items_result && $voided_items_result->num_rows > 0){
+                    while($void_item = $voided_items_result->fetch_assoc()){
+                        $item_name = $void_item['item_name'] ? $void_item['item_name'] : 'Unknown Item';
+                        $qty = $void_item['quantity'];
+                        $amt = $void_item['item_total'];
+                        
+                        $desc = "Voided {$qty} x {$item_name} from Order #{$id}. Reason: {$reason_s}. Amount: ₱" . number_format($amt, 2);
+                        
+                        $this->activityLog->log_activity(
+                            'VOID_ITEM',
+                            $desc,
+                            'Orders',
+                            $id
+                        );
+                    }
+                }
+                
+                // Also log the total void
+                $void_result = $this->activityLog->log_activity(
+                    'VOID_ORDER',
+                    "Voided entire Order #{$id}. Reason: {$reason_s}. Total amount voided: ₱" . number_format($total_voided, 2),
+                    'Orders',
+                    $id
+                );
+                
+                if(!$void_result) {
+                    error_log('ActivityLog failed to log void_order for order ' . $id);
+                }
+            } catch (Exception $e) {
+                error_log('ActivityLog Exception in delete_order: ' . $e->getMessage());
+            }
+        } else {
+            error_log('ActivityLog not initialized in delete_order');
+        }
+        
         $this->settings->set_flashdata('success'," Order has been voided successfully and recorded in void history.");
         return json_encode($resp);
     }
@@ -533,10 +778,39 @@ Class Master extends DBConnection {
     function serve_order(){
         extract($_POST);
         $user_id = $this->settings->userdata('id');
+        
+        // Get order details before update
+        $order_qry = $this->conn->query("SELECT code FROM `order_list` WHERE id = '{$id}'");
+        $order_data = $order_qry ? $order_qry->fetch_assoc() : null;
+        
+        // Get served items for logging
+        $items_qry = $this->conn->query("SELECT m.name, oi.quantity FROM order_items oi LEFT JOIN menu_list m ON oi.menu_id = m.id WHERE order_id = '{$id}' AND archived = 0");
+        $items_served = [];
+        if($items_qry && $items_qry->num_rows > 0) {
+            while($item = $items_qry->fetch_assoc()) {
+                $items_served[] = $item['quantity'] . 'x ' . ($item['name'] ? $item['name'] : 'Unknown');
+            }
+        }
+        
         $update = $this->conn->query("UPDATE `order_list` set `status` = 1 where id = '{$id}'");
         $this->conn->query("UPDATE order_items SET served = 1, served_by = '{$user_id}', served_at = CURRENT_TIMESTAMP() WHERE order_id = '{$id}'");
         if($update){
             $resp['status'] = 'success';
+            
+            // Log the serve activity
+            if($this->activityLog) {
+                try {
+                    $order_code = $order_data ? $order_data['code'] : 'Order #' . $id;
+                    $items_list = implode(', ', $items_served);
+                    $description = "Served complete order {$order_code}. Items: {$items_list}";
+                    $result = $this->activityLog->log_activity('SERVE_ORDER', $description, 'Kitchen', $id);
+                    if(!$result) {
+                        error_log('ActivityLog failed to log serve_order for order ' . $id);
+                    }
+                } catch (Exception $e) {
+                    error_log('ActivityLog Exception in serve_order: ' . $e->getMessage());
+                }
+            }
         }else{
             $resp['status'] = 'failed';
             $resp['error'] = $this->conn->error;
@@ -548,9 +822,30 @@ Class Master extends DBConnection {
     function serve_one_order(){
         extract($_POST);
         $user_id = $this->settings->userdata('id');
+        
+        // Get item details before update
+        $item_qry = $this->conn->query("SELECT oi.order_id, oi.quantity, m.name as item_name FROM order_items oi LEFT JOIN menu_list m ON oi.menu_id = m.id WHERE oi.id = '{$id}'");
+        $item_data = $item_qry ? $item_qry->fetch_assoc() : null;
+        
         $update = $this->conn->query("UPDATE order_items SET served = 1, served_by = '{$user_id}', served_at = CURRENT_TIMESTAMP() WHERE id = '{$id}'");
         if($update){
             $resp['status'] = 'success';
+            
+            // Log the serve activity
+            if($this->activityLog && $item_data) {
+                try {
+                    $order_id = $item_data['order_id'];
+                    $item_name = $item_data['item_name'] ? $item_data['item_name'] : 'Unknown Item';
+                    $qty = $item_data['quantity'];
+                    $description = "Served {$qty}x {$item_name} from Order #{$order_id}";
+                    $result = $this->activityLog->log_activity('SERVE_ITEM', $description, 'Kitchen', $order_id);
+                    if(!$result) {
+                        error_log('ActivityLog failed to log serve_one_order for item ' . $id);
+                    }
+                } catch (Exception $e) {
+                    error_log('ActivityLog Exception in serve_one_order: ' . $e->getMessage());
+                }
+            }
         }else{
             $resp['status'] = 'failed';
             $resp['error'] = $this->conn->error;
@@ -639,6 +934,10 @@ Class Master extends DBConnection {
         $price = isset($item['price']) ? floatval($item['price']) : 0;
         $amount = $price * $vqty;
         $reason_s = isset($reason) ? $this->conn->real_escape_string($reason) : 'Voided';
+        
+        // Get menu name BEFORE transaction for logging
+        $menu_name_qry = $this->conn->query("SELECT name FROM `menu_list` WHERE id = '{$menu_id}'");
+        $menu_name = $menu_name_qry && $menu_name_qry->num_rows > 0 ? $menu_name_qry->fetch_assoc()['name'] : 'Unknown Item';
 
         $this->conn->begin_transaction();
 
@@ -675,6 +974,22 @@ Class Master extends DBConnection {
 
         $resp['status'] = 'success';
         $resp['vid'] = $void_id;
+        
+        // Log activity - menu_name already fetched before transaction
+        if($this->activityLog) {
+            try {
+                $description = "Voided {$vqty} x {$menu_name} from Order #{$order_id}. Reason: {$reason_s}. Amount: ₱" . number_format($amount, 2);
+                $result = $this->activityLog->log_activity('VOID_ITEM', $description, 'Orders', $order_id);
+                if(!$result) {
+                    error_log('ActivityLog failed to log void_item for order ' . $order_id);
+                }
+            } catch (Exception $e) {
+                // Log the error but don't fail the void operation
+                error_log('ActivityLog Exception in void_item: ' . $e->getMessage());
+            }
+        } else {
+            error_log('ActivityLog not initialized in void_item');
+        }
         $resp['msg'] = 'Item archived (voided) successfully.';
         return json_encode($resp);
     }
@@ -747,20 +1062,40 @@ Class Master extends DBConnection {
 
         $resp['status'] = 'success';
         $resp['msg'] = 'Item restored to order successfully.';
+        
+        // Log activity
+        if($this->activityLog) {
+            try {
+                $menu_id = $void_record['menu_id'];
+                $menu_name_qry = $this->conn->query("SELECT name FROM `menu_list` WHERE id = '{$menu_id}'");
+                $menu_name = $menu_name_qry && $menu_name_qry->num_rows > 0 ? $menu_name_qry->fetch_assoc()['name'] : 'Unknown Item';
+                $qty = $void_record['quantity'];
+                $description = "Restored {$qty} x {$menu_name} to Order #{$order_id}. Amount restored: ₱" . number_format($amount, 2);
+                $result = $this->activityLog->log_activity('RESTORE_ITEM', $description, 'Orders', $order_id);
+                if(!$result) {
+                    error_log('ActivityLog failed to log restore_void_item for order ' . $order_id);
+                }
+            } catch (Exception $e) {
+                error_log('ActivityLog Exception in restore_void_item: ' . $e->getMessage());
+            }
+        } else {
+            error_log('ActivityLog not initialized in restore_void_item');
+        }
+        
         return json_encode($resp);
     }
 
     function get_voided_orders(){
         $resp = ['status' => 'failed', 'data' => []];
         
-        // Get all orders with voided items (voided_by is NOT NULL means entire order was voided)
+        // Get all orders with status = 6 (voided) OR voided_by is NOT NULL
         $sql = "SELECT 
                     ol.id,
                     ol.code,
                     ol.date_created,
                     ol.voided_by
                 FROM `order_list` ol
-                WHERE ol.voided_by IS NOT NULL
+                WHERE (ol.status = 6 OR ol.voided_by IS NOT NULL)
                 ORDER BY ol.date_created DESC";
         
         $query = $this->conn->query($sql);
@@ -844,6 +1179,10 @@ Class Master extends DBConnection {
             return json_encode($resp);
         }
 
+        $original_table_id = isset($order['table_id']) ? intval($order['table_id']) : null;
+        $requested_table_id = isset($table_id) && is_numeric($table_id) ? intval($table_id) : null;
+        $target_table_id = $requested_table_id ?: $original_table_id;
+
         // Check if order has voided items to restore
         $void_check = $this->conn->query("SELECT COUNT(id) as cnt FROM `voids` WHERE order_id = '". $this->conn->real_escape_string($order_id) ."'");
         $void_count = 0;
@@ -854,6 +1193,48 @@ Class Master extends DBConnection {
         
         if($void_count == 0){
             $resp['msg'] = 'This order has no voided items to restore.';
+            return json_encode($resp);
+        }
+
+        // Helper closure: check if a table is available (status = 1 and no active queued/serving orders)
+        $is_table_available = function($tid){
+            $tid_int = intval($tid);
+            $sql = "SELECT t.id FROM `table_list` t WHERE t.id = '{$tid_int}' AND t.delete_flag = 0 AND t.status = 1 AND NOT EXISTS (SELECT 1 FROM `order_list` o WHERE o.table_id = t.id AND o.status IN (0,1)) LIMIT 1";
+            $chk = $this->conn->query($sql);
+            return ($chk && $chk->num_rows > 0);
+        };
+
+        // Build list of available tables for fallback selection
+        $available_tables = [];
+        $avail_q = $this->conn->query("SELECT t.id, t.table_number, t.capacity FROM `table_list` t WHERE t.delete_flag = 0 AND t.status = 1 AND NOT EXISTS (SELECT 1 FROM `order_list` o WHERE o.table_id = t.id AND o.status IN (0,1)) ORDER BY CAST(SUBSTRING(t.table_number, 6) AS UNSIGNED), t.table_number");
+        if($avail_q){
+            while($t = $avail_q->fetch_assoc()){
+                $available_tables[] = $t;
+            }
+        }
+
+        // Decide if we can proceed with the target table or need user to pick another
+        $target_available = $target_table_id ? $is_table_available($target_table_id) : false;
+
+        if(!$target_available){
+            if(!empty($requested_table_id)){
+                $resp['msg'] = 'Selected table is no longer available. Please choose another table.';
+                $resp['status'] = 'need_table';
+                $resp['available_tables'] = $available_tables;
+                return json_encode($resp);
+            }
+
+            if(empty($available_tables)){
+                $resp['msg'] = 'No available tables right now. Please free up a table before restoring this order.';
+                $resp['status'] = 'no_table';
+                return json_encode($resp);
+            }
+
+            // Ask client to choose from available tables
+            $resp['status'] = 'need_table';
+            $resp['msg'] = 'Original table is occupied. Please choose another table.';
+            $resp['available_tables'] = $available_tables;
+            $resp['original_table_id'] = $original_table_id;
             return json_encode($resp);
         }
 
@@ -904,8 +1285,8 @@ Class Master extends DBConnection {
             $calculated_total = floatval($calc_row['calculated_total'] ?? 0);
         }
 
-        // Update order total with calculated amount (keep existing status)
-        $upd_order = $this->conn->query("UPDATE `order_list` SET `total_amount` = '". $this->conn->real_escape_string(number_format($calculated_total,2,'.','')) ."', `voided_by` = NULL WHERE id = '". $this->conn->real_escape_string($order_id) ."'");
+        // Update order total, clear void flag, set status back to queued (0), and bind to the chosen table
+        $upd_order = $this->conn->query("UPDATE `order_list` SET `total_amount` = '". $this->conn->real_escape_string(number_format($calculated_total,2,'.','')) ."', `voided_by` = NULL, `status` = 0, `table_id` = '". $this->conn->real_escape_string($target_table_id) ."', `date_updated` = CURRENT_TIMESTAMP() WHERE id = '". $this->conn->real_escape_string($order_id) ."'");
         if(!$upd_order){
             $this->conn->rollback();
             $resp['status'] = 'failed';
@@ -914,10 +1295,30 @@ Class Master extends DBConnection {
             return json_encode($resp);
         }
 
+        // Mark table as available/active (status 1) since it now has an active queued order
+        if(!empty($target_table_id)){
+            $upd_table = $this->conn->query("UPDATE `table_list` SET `status` = 1 WHERE id = '". $this->conn->real_escape_string($target_table_id) ."'");
+            if(!$upd_table){
+                $this->conn->rollback();
+                $resp['status'] = 'failed';
+                $resp['msg'] = 'Failed to update table status.';
+                $resp['error'] = $this->conn->error;
+                return json_encode($resp);
+            }
+        }
+
         $this->conn->commit();
 
         $resp['status'] = 'success';
         $resp['msg'] = 'Order restored successfully.';
+        $resp['table_id'] = $target_table_id;
+        $resp['table_number'] = null;
+        foreach($available_tables as $t){
+            if(intval($t['id']) === intval($target_table_id)){
+                $resp['table_number'] = $t['table_number'];
+                break;
+            }
+        }
         return json_encode($resp);
     }
 
@@ -1263,6 +1664,15 @@ switch ($action) {
         break;
     case 'restore_order':
         echo $Master->restore_order();
+        break;
+    case 'save_promo_discount':
+        echo $Master->save_promo_discount();
+        break;
+    case 'delete_promo_discount':
+        echo $Master->delete_promo_discount();
+        break;
+    case 'get_active_promo_discounts':
+        echo $Master->get_active_promo_discounts();
         break;
 
     default:

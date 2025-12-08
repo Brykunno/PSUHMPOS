@@ -106,7 +106,9 @@ function format_peso($amount) {
             <div><strong>More Reports:</strong> Explore additional reports and insights.</div>
             <div>
                 <a href="./?page=reports/product&start_date=<?= $start_date ?>&end_date=<?= $end_date ?>" class="btn btn-sm btn-primary">Product Sales</a>
+                <a href="./?page=reports/cashier_daily_sales&start_date=<?= $start_date ?>&end_date=<?= $end_date ?>" class="btn btn-sm btn-info">Cashier Daily</a>
                 <a href="./?page=reports/refunds&start_date=<?= $start_date ?>&end_date=<?= $end_date ?>" class="btn btn-sm btn-danger">Refunds</a>
+                <a href="./?page=reports/discounted_bills&start_date=<?= $start_date ?>&end_date=<?= $end_date ?>" class="btn btn-sm btn-warning text-dark">Discounted Bills</a>
             </div>
         </div>
     </div>

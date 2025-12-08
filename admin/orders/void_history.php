@@ -172,6 +172,36 @@ $staff_qry = $conn->query("SELECT id, username FROM users ORDER BY username ASC"
   </div>
 </div>
 
+<!-- Select Table Modal (shown when original table is occupied) -->
+<div class="modal fade" id="restoreSelectTableModal" tabindex="-1" role="dialog" aria-labelledby="restoreSelectTableModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title" id="restoreSelectTableModalLabel">
+          <i class="fa fa-chair mr-2"></i>Select a Table
+        </h5>
+        <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-3">The original table is occupied. Please pick another available table for this order.</p>
+        <div class="form-group mb-0">
+          <label for="restore-available-table" class="font-weight-bold">Available Tables</label>
+          <select class="form-control" id="restore-available-table"></select>
+        </div>
+        <small class="text-muted d-block mt-2">Only tables marked Available and without active queued/serving orders are listed.</small>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="confirm-restore-select-table">
+          <i class="fa fa-check mr-1"></i>Use This Table
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 function fetch_void_history_orders(data){
     data = data || {};
@@ -264,6 +294,8 @@ function fetch_voided_orders(){
 }
 
 $(function(){
+    var pendingRestoreOrderId = null;
+
     fetch_void_history_orders();
     fetch_voided_orders();
     $('#filter-form-void-orders').submit(function(e){
@@ -299,7 +331,7 @@ $(function(){
         $('#restoreConfirmModal').modal('show');
     });
 
-    // Handle confirm restore button click
+    // Handle confirm restore button click (item)
     $('#confirm-restore-btn').on('click', function(){
         var void_id = $(this).data('void-id');
         var order_id = $(this).data('order-id');
@@ -332,6 +364,55 @@ $(function(){
         });
     });
 
+    function openTablePicker(resp){
+        var $select = $('#restore-available-table');
+        $select.empty();
+
+        if(resp.available_tables && resp.available_tables.length){
+            resp.available_tables.forEach(function(t){
+                var label = t.table_number + ' (Capacity: ' + (t.capacity || '-') + ')';
+                $select.append('<option value="'+ t.id +'">'+ label +'</option>');
+            });
+            $('#restoreSelectTableModal').modal('show');
+        }else{
+            alert_toast(resp.msg || 'No available tables right now.', 'error');
+        }
+    }
+
+    function attemptRestoreOrder(orderId, tableId){
+        start_loader();
+        $.ajax({
+            url: _base_url_ + 'classes/Master.php?f=restore_order',
+            method: 'POST',
+            data: {
+                order_id: orderId,
+                table_id: tableId || ''
+            },
+            dataType: 'json',
+            error: function(jqXHR, textStatus, errorThrown) {
+                console.error('Restore Error:', textStatus, errorThrown, jqXHR);
+                alert_toast('Error restoring order: ' + textStatus, 'error');
+                end_loader();
+            },
+            success: function(resp){
+                if(resp.status === 'success'){
+                    alert_toast(resp.msg + ' - Order is now visible in the Orders List.', 'success');
+                    fetch_voided_orders();
+                    fetch_void_history_orders();
+                }else if(resp.status === 'need_table'){
+                    end_loader();
+                    openTablePicker(resp);
+                    return;
+                }else if(resp.status === 'no_table'){
+                    alert_toast(resp.msg || 'No available tables right now.', 'error');
+                }else{
+                    alert_toast(resp.msg || 'Failed to restore order', 'error');
+                }
+                end_loader();
+            }
+        });
+    }
+
     // Handle restore order button click - show confirmation modal
     $(document).on('click', '.restore-order-btn', function(){
         var order_id = $(this).data('order-id');
@@ -353,6 +434,7 @@ $(function(){
         
         // Store the restoration data
         $('#confirm-restore-order-btn').data('order-id', order_id);
+        pendingRestoreOrderId = order_id;
         
         // Show modal
         $('#restoreOrderConfirmModal').modal('show');
@@ -361,33 +443,22 @@ $(function(){
     // Handle confirm restore order button click
     $('#confirm-restore-order-btn').on('click', function(){
         var order_id = $(this).data('order-id');
-        
+        pendingRestoreOrderId = order_id;
         $('#restoreOrderConfirmModal').modal('hide');
-        start_loader();
-        
-        $.ajax({
-            url: _base_url_ + 'classes/Master.php?f=restore_order',
-            method: 'POST',
-            data: {
-                order_id: order_id
-            },
-            dataType: 'json',
-            error: function(jqXHR, textStatus, errorThrown) {
-                console.error('Restore Error:', textStatus, errorThrown, jqXHR);
-                alert_toast('Error restoring order: ' + textStatus, 'error');
-                end_loader();
-            },
-            success: function(resp){
-                if(resp.status == 'success'){
-                    alert_toast(resp.msg + ' - Order is now visible in the Orders List.', 'success');
-                    fetch_voided_orders();
-                    fetch_void_history_orders();
-                }else{
-                    alert_toast(resp.msg || 'Failed to restore order', 'error');
-                }
-                end_loader();
-            }
-        });
+        attemptRestoreOrder(order_id, null);
+    });
+
+    // Handle table selection confirm
+    $('#confirm-restore-select-table').on('click', function(){
+        var selectedTable = $('#restore-available-table').val();
+        if(!selectedTable){
+            alert_toast('Please choose a table.', 'warning');
+            return;
+        }
+        $('#restoreSelectTableModal').modal('hide');
+        if(pendingRestoreOrderId){
+            attemptRestoreOrder(pendingRestoreOrderId, selectedTable);
+        }
     });
 
     $('#print-void-orders').click(function(){
