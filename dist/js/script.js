@@ -45,10 +45,10 @@ $(document).ready(function() {
                                 location.replace(_base_url_ + 'admin');
                             }
                             else if (resp.role == 2) {
-                                location.replace(_base_url_ + 'admin/?page=kitchen');
+                                location.replace(_base_url_ + 'admin/?page=sales/cashier_dashboard');
                             }
                             else if (resp.role == 3) {
-                                location.replace(_base_url_ + 'admin/?page=table_management');
+                                location.replace(_base_url_ + 'admin/?page=kitchen');
                             }
                             else{
                                 location.replace(_base_url_ + 'admin');

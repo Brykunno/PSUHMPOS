@@ -4,9 +4,15 @@ require_once('./../../config.php');
 $cash = $change = $grand_total = $total_amount = $discount_percent = $emoney_reference = $card_number = '';
 $vat_amount = $net_total = $discount_amount = 0;
 $payment_method = '';
+$promo_name = $promo_type = '';
+$promo_value = 0;
+$promo_amount = 0;
 
 if (isset($_GET['id']) && $_GET['id'] > 0) {
-    $qry = $conn->query("SELECT * FROM `order_list` WHERE id = '{$_GET['id']}'");
+    $qry = $conn->query("SELECT ol.*, pd.name AS promo_name, pd.discount_type AS promo_type, pd.discount_value AS promo_value
+                        FROM `order_list` ol
+                        LEFT JOIN `promo_discount` pd ON ol.promo_discount_id = pd.id
+                        WHERE ol.id = '{$_GET['id']}'");
     if ($qry->num_rows > 0) {
         $order = $qry->fetch_assoc();
         // Assign values from DB
@@ -26,7 +32,10 @@ if (isset($_GET['id']) && $_GET['id'] > 0) {
         $discount_amount = $total_amount - $grand_total;
         $vat_amount = isset($order['vat_amount']) ? floatval($order['vat_amount']) : 0;
         $discount  = $discount_percent == 0? 0: format_num($discount_amount, 2);
-       
+        $promo_amount = isset($order['promo_discount_amount']) ? floatval($order['promo_discount_amount']) : 0;
+        $promo_name = isset($order['promo_name']) ? $order['promo_name'] : '';
+        $promo_type = isset($order['promo_type']) ? $order['promo_type'] : '';
+        $promo_value = isset($order['promo_value']) ? $order['promo_value'] : 0;
     }
 
      $dcqry = $conn->query("SELECT * FROM `discount_code` WHERE order_list_id = '{$_GET['id']}'");
@@ -100,7 +109,8 @@ $receipt_discount_amount = 0;
 if (!empty($discount_percent) && $discount_percent > 0) {
   $receipt_discount_amount = $display_subtotal * ($discount_percent / 100);
 }
-$receipt_grand_total = ($display_subtotal - $receipt_discount_amount) + $receipt_vat_amount;
+$promo_amount = $promo_amount ?: 0;
+$receipt_grand_total = ($display_subtotal - $receipt_discount_amount - $promo_amount) + $receipt_vat_amount;
 $is_full_refund = ($display_subtotal <= 0 && count($all_items) > 0);
 ?>
 
@@ -173,36 +183,47 @@ hr {
   <div>Transaction #: <?= isset($code) ? $code : '' ?></div>
   <div>Cashier: <?= isset($processed_by) ? $processed_by : '' ?></div>
   <div>Register: #<?= isset($queue) ? $queue : '1' ?></div>
+  <div>Device: <?= php_uname('n') ?> (<?= php_uname('s') ?>)</div>
   <hr>
 
   <div class="bold text-center">SALES INVOICE</div>
   <?php if ($is_full_refund): ?>
-    <div class="text-center" style="color:#dc3545; font-weight:bold; margin:4px 0;">FULL ORDER REFUND</div>
+    <div class="text-center bold" style="color: red;">FULLY REFUNDED</div>
   <?php endif; ?>
-  <div style="display:flex; font-weight: bold;">
-    <div style="width: 40%;">Item</div>
-    <div style="width: 20%; text-align: right;">Price</div>
-    <div style="width: 10%; text-align: center;">Qty</div>
-    <div style="width: 30%; text-align: right;">Amount</div>
+
+  <div style="display:flex; justify-content: space-between; padding: 5px 0; border-top: 1px dashed #000;">
+    <div style="width: 20%; font-weight: bold;">Item</div>
+    <div style="width: 20%; font-weight: bold;">Price</div>
+    <div style="width: 10%; font-weight: bold; text-align: center;">Qty</div>
+    <div style="width: 30%; font-weight: bold; text-align: right;">Total</div>
   </div>
-  <?php if (!empty($all_items)): ?>
+
+  <?php if (!$is_full_refund): ?>
     <?php foreach($all_items as $row): ?>
-      <?php 
-        $isRefunded = isset($row['refunded']) && (int)$row['refunded'] === 1; 
-        $lineTotal = isset($row['line_total']) ? $row['line_total'] : ((float)$row['price'] * (int)$row['quantity']);
-      ?>
-      <div style="display:flex; <?= $isRefunded ? 'color:#dc3545; text-decoration: line-through;' : '' ?>">
-        <div style="width: 40%;">
-          <?= htmlspecialchars($row['name']) ?>
-          <?php if ($isRefunded): ?>
-            <span style="font-size:10px; font-weight:bold; margin-left:4px;">[REFUNDED]</span>
-          <?php endif; ?>
+      <?php if ((int)$row['refunded'] !== 1): ?>
+        <div style="display:flex;">
+          <div style="width: 20%; text-align: left;"><?= substr(htmlspecialchars($row['name']), 0, 15) ?></div>
+          <div style="width: 20%; text-align: right;"><?= format_num($row['price'], 2) ?></div>
+          <div style="width: 10%; text-align: center;"><?= (int)$row['quantity'] ?></div>
+          <div style="width: 30%; text-align: right;"><?= format_num((float)$row['price'] * (int)$row['quantity'], 2) ?></div>
         </div>
-        <div style="width: 20%; text-align: right;"><?= format_num($row['price'], 2) ?></div>
-        <div style="width: 10%; text-align: center;"><?= (int)$row['quantity'] ?></div>
-        <div style="width: 30%; text-align: right;"><?= format_num($lineTotal, 2) ?></div>
-      </div>
+      <?php endif; ?>
     <?php endforeach; ?>
+
+    <?php if ($refunded_subtotal > 0): ?>
+      <hr>
+      <div class="bold" style="color: red;">REFUNDED ITEMS</div>
+      <?php foreach($all_items as $row): ?>
+        <?php if ((int)$row['refunded'] === 1): ?>
+          <div style="display:flex; color: red;">
+            <div style="width: 20%"><?= substr(htmlspecialchars($row['name']), 0, 15) ?></div>
+            <div style="width: 20%; text-align: right;"><?= format_num($row['price'], 2) ?></div>
+            <div style="width: 10%; text-align: center;"><?= (int)$row['quantity'] ?></div>
+            <div style="width: 30%; text-align: right;"><?= format_num((float)$row['price'] * (int)$row['quantity'], 2) ?></div>
+          </div>
+        <?php endif; ?>
+      <?php endforeach; ?>
+    <?php endif; ?>
   <?php endif; ?>
 
   <hr>
@@ -212,6 +233,9 @@ hr {
   <div style="display:flex;"><div style="width: 70%;">Discount Code (<?= $discount_type ?>):</div><div style="width:30%; text-align:right;"><?= $discount_code ?></div></div>
   <?php endif; ?>
   <div style="display:flex;"><div style="width: 70%">Discount (<?= $discount_percent ?>%):</div><div style="width:30%; text-align:right; "><?= $discount_percent == 0? 0: format_num($receipt_discount_amount, 2) ?></div></div>
+  <?php if (!empty($promo_name) && $promo_amount > 0): ?>
+  <div style="display:flex;"><div style="width: 70%">Promo (<?= htmlspecialchars($promo_name) ?>):</div><div style="width:30%; text-align:right;">-<?= format_num($promo_amount, 2) ?></div></div>
+  <?php endif; ?>
   <div style="display:flex;"><div style="width: 70%; font-weight:bold;">TOTAL:</div><div style="width:30%; text-align:right; font-weight:bold; "><?= format_num($receipt_grand_total, 2) ?></div></div>
   <?php if($payment_method == 'cash'): ?>
     <?php $display_change = max(0, $cash - $receipt_grand_total); ?>
@@ -227,35 +251,21 @@ hr {
   <hr>
 
   <?php $receipt_net_total = $display_subtotal - $receipt_vat_amount; ?>
-  <div>
+  <?php if ($is_full_refund): ?>
+    <div class="text-center bold" style="color: red;">REFUND RECEIPT</div>
+  <?php else: ?>
+    <small style="display:block; margin-top: 10px;">
     VATable Sales: <?= format_num($receipt_net_total, 2) ?><br>
     VAT Amount: <?= format_num($receipt_vat_amount, 2) ?><br>
-    VAT-Exempt Sales: 0.00<br>
-    Zero-Rated Sales: 0.00
-  </div>
+    </small>
+  <?php endif; ?>
 
-  <br><br>
-  <div class="text-center">
-    Thank you for dining at LION CASA 1979!<br><br>
-    -------------------------------<br>
-    POS Provider: BSIT PSU SANCARLOS.<br>
-    Pangasinan State University San Carlos Campus Roxas Blvd.<br>
-    Roxas Blvd, San Carlos City, Pangasinan 2420.<br>
-    VAT REG TIN: 010-036-922-000<br>
-    Date Issued: 02/24/2025<br>
-    Acc #: 043-0100-36922-201905-10900<br>
-    PTU #: FP122023-062-04212023-001<br>
-    Date Issued: 05/10/2025<br>
-    -------------------------------<br>
-    This serves as your sales invoice.<br>
-    POWERED BY BSIT POS
+  <hr>
+  <div class="text-center d-print-none">
+    <button onclick="window.print()">Print</button>
+    <button onclick="history.back()">Back</button>
   </div>
 </div>
-
-<script>
-  document.title = "Print Receipt";
-  window.print();
-</script>
 
 </body>
 </html>

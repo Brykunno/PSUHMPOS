@@ -8,6 +8,10 @@ $grand_total = isset($_GET['grand_total']) ? floatval($_GET['grand_total']) : 0;
 $total_amount = isset($_GET['total_amount']) ? floatval($_GET['total_amount']) : 0;
 $discount_type = isset($_GET['discount_type']) ? $_GET['discount_type'] : ''; 
 $discount_code = isset($_GET['discount_code']) ? htmlspecialchars($_GET['discount_code']) : '';
+$promo_name = '';
+$promo_amount = 0;
+$promo_type = '';
+$promo_value = 0;
 
 $is_vat_exempt = false;
 if (strpos(strtolower($discount_type), 'senior') !== false || strpos(strtolower($discount_type), 'pwd') !== false) {
@@ -58,11 +62,19 @@ if ($is_vat_exempt) {
 
 $calculated_vat_amount = $vat_amount; 
 if (isset($_GET['id']) && $_GET['id'] > 0) {
-    $qry = $conn->query("SELECT * FROM `order_list` where id = '{$_GET['id']}'");
+    $qry = $conn->query("SELECT ol.*, pd.name AS promo_name, pd.discount_type AS promo_type, pd.discount_value AS promo_value
+                        FROM `order_list` ol
+                        LEFT JOIN `promo_discount` pd ON ol.promo_discount_id = pd.id
+                        WHERE ol.id = '{$_GET['id']}'");
     if ($qry->num_rows > 0) {
-        foreach ($qry->fetch_array() as $k => $v) {
+        $order_data = $qry->fetch_assoc();
+        foreach ($order_data as $k => $v) {
             if (!is_numeric($k)) $$k = htmlspecialchars_decode($v);
         }
+        $promo_amount = isset($order_data['promo_discount_amount']) ? floatval($order_data['promo_discount_amount']) : 0;
+        $promo_name = isset($order_data['promo_name']) ? $order_data['promo_name'] : '';
+        $promo_type = isset($order_data['promo_type']) ? $order_data['promo_type'] : '';
+        $promo_value = isset($order_data['promo_value']) ? $order_data['promo_value'] : 0;
     }
     if (isset($user_id)) {
         $user = $conn->query("SELECT username FROM `users` where id = '{$user_id}'");
@@ -72,7 +84,8 @@ if (isset($_GET['id']) && $_GET['id'] > 0) {
     }
 }
 
-$grand_total = $grand_total + $calculated_vat_amount;
+// Recalculate grand total with promo
+$grand_total = $grand_total - $promo_amount;
 ?>
 
 <!DOCTYPE html>
@@ -144,6 +157,7 @@ hr {
   <div>Transaction #: <?= isset($code) ? $code : '' ?></div>
   <div>Cashier: <?= isset($processed_by) ? $processed_by : '' ?></div>
   <div>Register: #<?= isset($queue) ? $queue : '1' ?></div>
+  <div>Device: <?= php_uname('n') ?> (<?= php_uname('s') ?>)</div>
   <hr>
 
   <div class="bold text-center">SALES INVOICE</div>
@@ -174,6 +188,9 @@ hr {
   <div style="display:flex;"><div style="width: 70%;">Discount Code (<?= $_GET['discount_type'] ?>):</div><div style="width:30%; text-align:right;"><?= $discount_code ?></div></div>
   <?php endif; ?>
   <div style="display:flex;"><div style="width: 70%;">Discount (<?= $discount_percent ?>%):</div><div style="width:30%; text-align:right;"><?= format_num($discount_amount, 2) ?></div></div>
+  <?php if (!empty($promo_name) && $promo_amount > 0): ?>
+  <div style="display:flex;"><div style="width: 70%;">Promo (<?= htmlspecialchars($promo_name) ?>):</div><div style="width:30%; text-align:right;">-<?= format_num($promo_amount, 2) ?></div></div>
+  <?php endif; ?>
   <div style="display:flex;"><div style="width: 70%; font-weight:bold;">TOTAL:</div><div style="width:30%; text-align:right; font-weight:bold;"><?= format_num($grand_total, 2) ?></div></div>
   <?php if($p_method == 'cash'): ?>
     <div style="display:flex;"><div style="width: 70%;">CASH:</div><div style="width:30%; text-align:right;"><?= format_num($cash, 2) ?></div></div>

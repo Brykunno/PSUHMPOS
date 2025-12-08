@@ -1,5 +1,10 @@
 <?php
-require_once '../../config.php';
+// Fix path resolution
+if(!defined('BASE_PATH')) {
+    define('BASE_PATH', dirname(dirname(dirname(__FILE__))));
+}
+require_once BASE_PATH . '/config.php';
+require_once BASE_PATH . '/classes/ActivityLog.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $order_id = $_POST['order_id'];
@@ -51,6 +56,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $stmt->close();
+        
+        // Log activity
+        try {
+            $activityLog = new ActivityLog();
+            $description = "Confirmed payment for Order #{$order_id}. Method: {$payment_method}. Amount: ₱{$grand_total}. Change: ₱{$change}";
+            if(!empty($discount_code)) {
+                $description .= " (with discount code: {$discount_code})";
+            }
+            $activityLog->log_activity('update', $description, 'orders', $order_id);
+        } catch (Exception $log_err) {
+            // Silently fail if activity log fails
+        }
         
         // Commit transaction
         $conn->commit();

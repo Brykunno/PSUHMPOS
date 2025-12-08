@@ -1,10 +1,24 @@
 <?php
-require_once('../config.php');
+// Fix path resolution
+if(!defined('BASE_PATH')) {
+    define('BASE_PATH', dirname(dirname(__FILE__)));
+}
+require_once(BASE_PATH . '/config.php');
+require_once(BASE_PATH . '/classes/ActivityLog.php');
+
 Class Users extends DBConnection {
 	private $settings;
+	private $activityLog;
+	
 	public function __construct(){
 		global $_settings;
 		$this->settings = $_settings;
+		// Initialize ActivityLog only if table exists
+		try {
+			$this->activityLog = new ActivityLog();
+		} catch (Exception $e) {
+			$this->activityLog = null;
+		}
 		parent::__construct();
 	}
 	public function __destruct(){
@@ -63,6 +77,13 @@ Class Users extends DBConnection {
 
 					imagedestroy($temp);
 				}
+				
+				// Log activity
+				if($this->activityLog) {
+					$user_name = "{$firstname} {$lastname}";
+					$this->activityLog->log_activity('create', "Created new user: {$user_name} ({$username})", 'users', $id);
+				}
+				
 				return 1;
 			}else{
 				return 2;
@@ -108,6 +129,10 @@ Class Users extends DBConnection {
 					imagedestroy($temp);
 				}
 
+				// Log activity
+				$user_name = "{$firstname} {$lastname}";
+				$this->activityLog->log_activity('update', "Updated user: {$user_name} ({$username})", 'users', $id);
+
 				return 1;
 			}else{
 				return "UPDATE users set $data where id = {$id}";
@@ -117,11 +142,21 @@ Class Users extends DBConnection {
 	}
 	public function delete_users(){
 		extract($_POST);
+		
+		// Get user info before deleting
+		$user_qry = $this->conn->query("SELECT firstname, lastname, username FROM users WHERE id = {$id}");
+		$user = $user_qry->fetch_assoc();
+		$user_name = "{$user['firstname']} {$user['lastname']}";
+		
 		$qry = $this->conn->query("DELETE FROM users where id = $id");
 		if($qry){
 			$this->settings->set_flashdata('success','User Details successfully deleted.');
 			if(is_file(base_app."uploads/avatars/$id.png"))
 				unlink(base_app."uploads/avatars/$id.png");
+				
+			// Log activity
+			$this->activityLog->log_activity('delete', "Deleted user: {$user_name} ({$user['username']})", 'users', $id);
+				
 			return 1;
 		}else{
 			return false;

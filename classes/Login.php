@@ -1,5 +1,10 @@
 <?php
-require_once '../config.php';
+// Fix path resolution
+if(!defined('BASE_PATH')) {
+    define('BASE_PATH', dirname(dirname(__FILE__)));
+}
+require_once BASE_PATH . '/config.php';
+require_once BASE_PATH . '/classes/ActivityLog.php';
 
 class Login extends DBConnection {
     private $settings;
@@ -42,10 +47,26 @@ class Login extends DBConnection {
     
             $this->settings->set_userdata('login_type', 1); // If needed
     
-            // Return success response including the user's role/type
+            // Log successful login
+            try {
+                $activityLog = new ActivityLog();
+                $user_type = $user['type'] == 1 ? 'Admin' : ($user['type'] == 2 ? 'Cashier' : 'Kitchen');
+                $activityLog->log_activity('login', "User {$user['username']} ({$user_type}) logged in successfully", 'authentication');
+            } catch (Exception $e) {
+                // Silently fail if ActivityLog table doesn't exist yet
+            }
+    
+            // Redirect based on user type
+            $redirect_url = 'admin/';
+            if ((int)$user['type'] === 2) {
+                // Cashier - redirect to cashier dashboard
+                $redirect_url = 'admin/?page=sales/cashier_dashboard';
+            }
+            // else type 1 (admin) and type 3 (kitchen) go to admin index
+    
             return json_encode([
                 'status' => 'success',
-                'redirect' => 'admin/dashboard.php',
+                'redirect' => $redirect_url,
                 'role' => $user['type'] // or whatever field represents the role
             ]);
         } else {
@@ -57,6 +78,18 @@ class Login extends DBConnection {
     }
     
    public function logout() {
+    // Log logout before destroying session
+    if(isset($this->settings) && $this->settings->userdata('id')){
+        try {
+            $activityLog = new ActivityLog();
+            $username = $this->settings->userdata('username');
+            $user_type = $this->settings->userdata('type') == 1 ? 'Admin' : ($this->settings->userdata('type') == 2 ? 'Cashier' : 'Kitchen');
+            $activityLog->log_activity('logout', "User {$username} ({$user_type}) logged out", 'authentication');
+        } catch (Exception $e) {
+            // Silently fail if ActivityLog table doesn't exist yet
+        }
+    }
+    
     session_start();
     $_SESSION = [];
     if (ini_get("session.use_cookies")) {

@@ -91,8 +91,18 @@
         </li>
         <?php endif; ?>
 
+        <!-- Dashboard (Only cashiers can access) -->
+        <?php if($_settings->userdata('type') == 2): ?>
+        <li class="nav-item dropdown">
+          <a href="./?page=sales/cashier_dashboard" class="nav-link nav-sales_cashier_dashboard">
+            <i class="nav-icon fas fa-chart-line"></i>
+            <p>Dashboard</p>
+          </a>
+        </li>
+        <?php endif; ?>
+
         <!-- POS (cashier and admin only) -->
-        <?php if($_settings->userdata('type') != 2): ?>
+        <?php if($_settings->userdata('type') == 1 || $_settings->userdata('type') == 2): ?>
           
         <li class="nav-item dropdown">
     <a href="<?php echo base_url ?>admin/?page=table_management" class="nav-link nav-table_management">
@@ -115,7 +125,7 @@
         <?php endif; ?>
 
         <!-- Kitchen Side (kitchen and admin only) -->
-        <?php if($_settings->userdata('type') != 3): ?>
+        <?php if($_settings->userdata('type') == 1 || $_settings->userdata('type') == 3): ?>
         <li class="nav-item dropdown">
           <a href="./?page=kitchen" class="nav-link nav-kitchen">
             <i class="nav-icon fas fa-utensils"></i>
@@ -155,6 +165,13 @@
           </a>
         </li>
 
+        <li class="nav-item dropdown">
+          <a href="./?page=promo_discount" class="nav-link nav-promo_discount">
+            <i class="nav-icon fas fa-tag"></i>
+            <p>Promo Discount</p>
+          </a>
+        </li>
+
         <!-- Reports -->
         <li class="nav-item">
           <a href="#" class="nav-link">
@@ -178,6 +195,18 @@
               </a>
             </li>
             <li class="nav-item">
+              <a href="./?page=reports/cashier_daily_sales" class="nav-link tree-item nav-cashier_daily_sales_reports">
+                <i class="fas fa-user-tie nav-icon"></i>
+                <p>Cashier Daily Sales</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="./?page=reports/discounted_bills" class="nav-link tree-item nav-discounted_bills_reports">
+                <i class="fas fa-tags nav-icon"></i>
+                <p>Discounted Bills</p>
+              </a>
+            </li>
+            <li class="nav-item">
               <a href="./?page=reports/refunds" class="nav-link tree-item nav-refunds_reports">
                 <i class="fas fa-undo nav-icon"></i>
                 <p>Refunds</p>
@@ -193,6 +222,13 @@
           <a href="<?php echo base_url ?>admin/?page=user/list" class="nav-link nav-user_list">
             <i class="nav-icon fas fa-users-cog"></i>
             <p>User List</p>
+          </a>
+        </li>
+
+        <li class="nav-item dropdown">
+          <a href="<?php echo base_url ?>admin/?page=logs" class="nav-link nav-logs">
+            <i class="nav-icon fas fa-history"></i>
+            <p>Activity Logs</p>
           </a>
         </li>
 

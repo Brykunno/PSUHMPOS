@@ -1,5 +1,18 @@
 <?php
 require_once('../../config.php');
+
+// Initialize activity log if available
+$activityLog = null;
+try {
+    if(!defined('BASE_PATH')) {
+        define('BASE_PATH', dirname(dirname(dirname(__FILE__))));
+    }
+    require_once(BASE_PATH . '/classes/ActivityLog.php');
+    $activityLog = new ActivityLog();
+} catch (Exception $e) {
+    error_log('Failed to initialize ActivityLog in delete_order_item.php: ' . $e->getMessage());
+}
+
 header('Content-Type: application/json');
 
 if($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -96,6 +109,16 @@ try {
     
     // Commit transaction
     $conn->commit();
+    
+    // Log the void activity
+    if($activityLog) {
+        try {
+            $description = "Voided {$item_data['quantity']} x {$item_data['menu_name']} from Order #{$order_id}. Reason: {$reason}. Amount: ₱" . number_format($item_total, 2);
+            $activityLog->log_activity('VOID_ITEM', $description, 'Orders', $order_id);
+        } catch (Exception $e) {
+            error_log('ActivityLog Error in delete_order_item: ' . $e->getMessage());
+        }
+    }
     
     echo json_encode([
         'status' => 'success',
